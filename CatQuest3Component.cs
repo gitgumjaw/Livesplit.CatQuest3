@@ -22,12 +22,6 @@ namespace LiveSplit.CatQuest3
         private bool _memoryInitialized;
 
         // ============================================================
-        // DYNAMIC METHOD ADDRESSES
-        // ============================================================
-
-        private uint _transitToGameAddress;
-
-        // ============================================================
         // HISTORY
         // ============================================================
 
@@ -37,7 +31,7 @@ namespace LiveSplit.CatQuest3
 
         private uint _lastChoiceYesRelayOnceCount;
 
-        private uint _lastConfirmationCallbackMethodPtr;
+        private bool _lastOverwriteConfirmationCandidate;
 
         // ============================================================
         // CONTINUE START STATE
@@ -196,9 +190,6 @@ namespace LiveSplit.CatQuest3
 
                     _memoryInitialized =
                         false;
-
-                    _transitToGameAddress =
-                        0;
 
                     ResetHistory();
                 }
@@ -377,46 +368,9 @@ namespace LiveSplit.CatQuest3
                 contextsStaticStorage
             );
 
-            // --------------------------------------------------------
-            // SaveLoadPanel.TransitToGame
-            // --------------------------------------------------------
-
-            const string transitToGamePattern =
-                "55 8B EC 57 83 EC 24 " +
-                "8B 7D 08 " +
-                "8B 47 10 " +
-                "8B 40 60 " +
-                "C6 40 30 01 " +
-                "8B 47 48 " +
-                "C7 44 24 04 00 00 00 00 " +
-                "89 04 24 " +
-                "90 " +
-                "E8 ?? ?? ?? ?? " +
-                "85 C0 " +
-                "74 30";
-
-            IntPtr transitToGame =
-                _memory.FindSignature(
-                    transitToGamePattern
-                );
-
-            Trace.WriteLine(
-                "TransitToGame: 0x" +
-                transitToGame
-                    .ToInt64()
-                    .ToString("X")
-            );
-
-            if (
-                transitToGame ==
-                IntPtr.Zero
-            )
-            {
-                return false;
-            }
-
-            _transitToGameAddress =
-                (uint)transitToGame.ToInt64();
+            // TransitToGame is intentionally NOT required for initialization.
+            // Mono may not JIT this method until an overwrite flow is used.
+            // It is located later, only when an overwrite-related event occurs.
 
             return true;
         }
@@ -475,62 +429,25 @@ namespace LiveSplit.CatQuest3
 
         private bool IsOverwriteStart()
         {
-            // YES consumes the one-shot listener immediately.
+            // Opening an overwrite confirmation adds one one-shot YES
+            // listener to MessagePanel.onChoiceYesEvent.
             //
-            // CANCEL also eventually removes that listener, but only
-            // AFTER the confirmation panel has closed.
+            // Confirming YES consumes that listener (1 -> 0).
+            // In testing, cancelling the overwrite did not consume it,
+            // and Delete Save did not use this same relay path.
+            //
+            // Use the PREVIOUS frame's confirmation identity so this still
+            // works if the selected save has already begun changing on the
+            // same frame that YES consumes the listener.
 
             bool yesListenerConsumed =
                 _lastChoiceYesRelayOnceCount > 0 &&
                 _gameState.ChoiceYesRelayOnceCount == 0;
 
-            if (!yesListenerConsumed)
-            {
-                return false;
-            }
-
-            // --------------------------------------------------------
-            // CONFIRM MUST STILL BE SHOWING
-            // --------------------------------------------------------
-            //
-            // YES:
-            // onceCount 1 -> 0
-            // confirmation = true
-            //
-            // CANCEL:
-            // onceCount 1 -> 0
-            // confirmation = false
-
-            if (
-                !_gameState.IsConfirmationPanelShowing
-            )
-            {
-                return false;
-            }
-
-            // --------------------------------------------------------
-            // CALLBACK MUST BE TransitToGame
-            // --------------------------------------------------------
-            //
-            // This distinguishes:
-            //
-            // Overwrite confirmation -> TransitToGame
-            // Delete confirmation    -> ProcessDeletion
-
-            bool callbackIsTransitToGame =
-                _lastConfirmationCallbackMethodPtr != 0 &&
-                _transitToGameAddress != 0 &&
-                _lastConfirmationCallbackMethodPtr ==
-                    _transitToGameAddress;
-
-            if (!callbackIsTransitToGame)
-            {
-                return false;
-            }
-
-            // Additional guard: this must be New Game mode.
             return
-                _gameState.IsStartingNewGame;
+                yesListenerConsumed &&
+                _lastOverwriteConfirmationCandidate &&
+                _gameState.IsConfirmationPanelShowing;
         }
 
         private void CheckOverwriteStart()
@@ -767,17 +684,12 @@ namespace LiveSplit.CatQuest3
             _lastChoiceYesRelayOnceCount =
                 _gameState.ChoiceYesRelayOnceCount;
 
-            // Preserve the callback identity while the confirmation's
-            // one-shot listener still exists.
-            if (
+            _lastOverwriteConfirmationCandidate =
+                _gameState.IsConfirmationPanelShowing &&
                 _gameState.ChoiceYesRelayOnceCount > 0 &&
-                _gameState.ConfirmationCallbackMethodPtr != 0
-            )
-            {
-                _lastConfirmationCallbackMethodPtr =
-                    _gameState
-                        .ConfirmationCallbackMethodPtr;
-            }
+                _gameState.IsStartingNewGame &&
+                !_gameState.SelectedSaveIsNewSave &&
+                _gameState.SaveIndicesMatch;
 
             if (
                 !_gameState.HasChangeSceneCommand
@@ -799,8 +711,8 @@ namespace LiveSplit.CatQuest3
             _lastChoiceYesRelayOnceCount =
                 0;
 
-            _lastConfirmationCallbackMethodPtr =
-                0;
+            _lastOverwriteConfirmationCandidate =
+                false;
 
             _sceneStartHandledForCurrentCommand =
                 false;
