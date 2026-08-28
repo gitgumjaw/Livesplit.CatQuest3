@@ -29,6 +29,9 @@ namespace LiveSplit.CatQuest3
 
         private bool _lastHaltNavigation;
 
+        private int _haltNavigationFrames;
+        private bool _haltBeganWithMatchingIndices;
+
         private uint _lastChoiceYesRelayOnceCount;
 
         private bool _lastOverwriteConfirmationCandidate;
@@ -223,6 +226,8 @@ namespace LiveSplit.CatQuest3
             // --------------------------------------------------------
 
             _gameState.Update();
+
+            UpdateHaltNavigationState();
 
             // --------------------------------------------------------
             // FIRST VALID READ = BASELINE ONLY
@@ -516,15 +521,28 @@ namespace LiveSplit.CatQuest3
             // This lets Continue/Load start at the user's activation instead
             // of waiting for the fade-to-white / ChangeSceneCommand.
 
-            bool haltJustStarted =
-                !_lastHaltNavigation &&
-                _gameState.HaltNavigation;
+            // Save-slot scrolling/highlight movement can also set
+            // haltNavigation. False halts observed during normal/rapid
+            // navigation lasted anywhere from 1 to 30 frames.
+            //
+            // The longer false halts began while the tracked/scroll indices
+            // were NOT aligned. A real Load activation began with aligned
+            // indices and remained halted for hundreds of frames.
+            //
+            // Therefore require BOTH:
+            // 1) the halt began while the save indices were aligned, and
+            // 2) the halt has remained active for 10 consecutive frames.
+            //
+            // Equality makes this a one-shot event.
+            bool sustainedQualifiedLoadHalt =
+                _haltNavigationFrames == 10 &&
+                _haltBeganWithMatchingIndices;
 
             bool earlyLoadStart =
                 _gameState.StartingGameMode == 0 &&
                 !_gameState.SelectedSaveIsNewSave &&
                 _gameState.SaveIndicesMatch &&
-                haltJustStarted;
+                sustainedQualifiedLoadHalt;
 
             if (earlyLoadStart)
             {
@@ -705,6 +723,40 @@ namespace LiveSplit.CatQuest3
         }
 
         // ============================================================
+        // HALT NAVIGATION STATE
+        // ============================================================
+
+        private void UpdateHaltNavigationState()
+        {
+            if (!_gameState.HaltNavigation)
+            {
+                _haltNavigationFrames =
+                    0;
+
+                _haltBeganWithMatchingIndices =
+                    false;
+
+                return;
+            }
+
+            if (!_lastHaltNavigation)
+            {
+                _haltNavigationFrames =
+                    1;
+
+                _haltBeganWithMatchingIndices =
+                    _gameState.SaveIndicesMatch;
+
+                return;
+            }
+
+            if (_haltNavigationFrames < 1000000)
+            {
+                _haltNavigationFrames++;
+            }
+        }
+
+        // ============================================================
         // HISTORY
         // ============================================================
 
@@ -738,6 +790,12 @@ namespace LiveSplit.CatQuest3
                 false;
 
             _lastHaltNavigation =
+                false;
+
+            _haltNavigationFrames =
+                0;
+
+            _haltBeganWithMatchingIndices =
                 false;
 
             _lastChoiceYesRelayOnceCount =
