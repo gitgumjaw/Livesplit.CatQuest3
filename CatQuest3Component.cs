@@ -502,6 +502,38 @@ namespace LiveSplit.CatQuest3
         private bool IsContinueStart()
         {
             // StartingGameMode.LOAD = 0.
+            //
+            // LOAD GAME EARLY SIGNAL
+            // ----------------------
+            // When an existing save is activated from the save-select UI,
+            // navigation is halted before the scene-change command appears.
+            //
+            // During ordinary navigation we observed haltNavigation toggles
+            // while the tracked/scroll indices were NOT aligned. On the
+            // actual load activation, the indices were aligned and the
+            // selected save was an existing save.
+            //
+            // This lets Continue/Load start at the user's activation instead
+            // of waiting for the fade-to-white / ChangeSceneCommand.
+
+            bool haltJustStarted =
+                !_lastHaltNavigation &&
+                _gameState.HaltNavigation;
+
+            bool earlyLoadStart =
+                _gameState.StartingGameMode == 0 &&
+                !_gameState.SelectedSaveIsNewSave &&
+                _gameState.SaveIndicesMatch &&
+                haltJustStarted;
+
+            if (earlyLoadStart)
+            {
+                return true;
+            }
+
+            // Keep the original scene-command detector as a fallback for
+            // Continue paths that do not pass through the save-slot
+            // activation signal above.
 
             if (
                 _gameState.StartingGameMode != 0
