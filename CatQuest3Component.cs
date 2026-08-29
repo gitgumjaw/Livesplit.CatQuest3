@@ -42,6 +42,10 @@ namespace LiveSplit.CatQuest3
 
         private bool _sceneStartHandledForCurrentCommand;
 
+        // Prevent one ChangeSceneCommand from firing the same location
+        // trigger repeatedly across multiple LiveSplit update frames.
+        private bool _locationSplitHandledForCurrentCommand;
+
         private static readonly TimeSpan LoadScreenStartRealtimeCorrection =
             TimeSpan.FromSeconds(2.10);
 
@@ -382,6 +386,14 @@ namespace LiveSplit.CatQuest3
             // --------------------------------------------------------
 
             UpdateHistory();
+
+            // --------------------------------------------------------
+            // LOCATION ENTER / EXIT SPLIT
+            // --------------------------------------------------------
+            //
+            // Scene transitions are already read by the established game-state
+            // update path. No additional memory scan is needed here.
+            CheckConfiguredLocationSplit();
 
             // --------------------------------------------------------
             // CHEST DEBUG - ISOLATED
@@ -922,6 +934,107 @@ namespace LiveSplit.CatQuest3
         }
 
         // ============================================================
+        // LOCATION ENTER / EXIT SPLIT
+        // ============================================================
+
+        private void CheckConfiguredLocationSplit()
+        {
+            if (
+                !_gameState.HasChangeSceneCommand ||
+                !_gameState.SceneChangeProcessStarted ||
+                _locationSplitHandledForCurrentCommand
+            )
+            {
+                return;
+            }
+
+            // Mark this ChangeSceneCommand as consumed before checking the
+            // configured split. The same command can remain alive for several
+            // frames, but it represents only one physical transition.
+            _locationSplitHandledForCurrentCommand =
+                true;
+
+            SplitTriggerSelection trigger =
+                GetCurrentSplitTrigger();
+
+            if (
+                trigger.Type != SplitTriggerType.Enter &&
+                trigger.Type != SplitTriggerType.Exit
+            )
+            {
+                return;
+            }
+
+            if (string.IsNullOrEmpty(trigger.Value))
+            {
+                return;
+            }
+
+            LocationCatalog.LocationEntry location;
+
+            if (
+                !LocationCatalog.TryGetByValue(
+                    trigger.Value,
+                    out location
+                )
+            )
+            {
+                return;
+            }
+
+            bool matched;
+
+            if (trigger.Type == SplitTriggerType.Enter)
+            {
+                // Enter fires when the transition TARGET is the selected
+                // location. The source can be any scene.
+                matched =
+                    location.MatchesSceneName(
+                        _gameState.TargetSceneName
+                    );
+            }
+            else
+            {
+                // Exit fires when the transition SOURCE is the selected
+                // location and the target is actually different. This avoids
+                // treating an unusual same-scene transition as an exit.
+                matched =
+                    location.MatchesSceneName(
+                        _gameState.CurrentSceneName
+                    ) &&
+                    !string.Equals(
+                        _gameState.CurrentSceneName,
+                        _gameState.TargetSceneName,
+                        StringComparison.Ordinal
+                    );
+            }
+
+            if (!matched)
+            {
+                return;
+            }
+
+            Trace.WriteLine(
+                "SPLIT TRIGGER | " +
+                (
+                    trigger.Type == SplitTriggerType.Enter
+                        ? "ENTER"
+                        : "EXIT"
+                ) +
+                " | " +
+                location.DisplayName +
+                " | " +
+                _gameState.CurrentSceneName +
+                " -> " +
+                _gameState.TargetSceneName +
+                " | SPLIT " +
+                (_state.CurrentSplitIndex + 1).ToString()
+            );
+
+            _timerModel.Split();
+        }
+
+        // ============================================================
         // CHEST SPLIT
         // ============================================================
 
@@ -1175,6 +1288,9 @@ namespace LiveSplit.CatQuest3
             {
                 _sceneStartHandledForCurrentCommand =
                     false;
+
+                _locationSplitHandledForCurrentCommand =
+                    false;
             }
         }
 
@@ -1199,6 +1315,9 @@ namespace LiveSplit.CatQuest3
                 false;
 
             _sceneStartHandledForCurrentCommand =
+                false;
+
+            _locationSplitHandledForCurrentCommand =
                 false;
         }
 

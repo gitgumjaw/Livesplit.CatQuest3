@@ -756,6 +756,20 @@ namespace LiveSplit.CatQuest3
 
             comboBox.Items.Add(
                 new TriggerTypeOption(
+                    SplitTriggerType.Enter,
+                    "Enter"
+                )
+            );
+
+            comboBox.Items.Add(
+                new TriggerTypeOption(
+                    SplitTriggerType.Exit,
+                    "Exit"
+                )
+            );
+
+            comboBox.Items.Add(
+                new TriggerTypeOption(
                     SplitTriggerType.KeyQuestItem,
                     "KeyItem"
                 )
@@ -854,6 +868,24 @@ namespace LiveSplit.CatQuest3
                         new SpecificTriggerOption(
                             chest.Guid,
                             chest.DisplayName
+                        )
+                    );
+                }
+            }
+            else if (
+                type == SplitTriggerType.Enter ||
+                type == SplitTriggerType.Exit
+            )
+            {
+                foreach (
+                    LocationCatalog.LocationEntry location
+                    in LocationCatalog.Entries
+                )
+                {
+                    comboBox.Items.Add(
+                        new SpecificTriggerOption(
+                            location.Value,
+                            location.DisplayName
                         )
                     );
                 }
@@ -987,6 +1019,12 @@ namespace LiveSplit.CatQuest3
             {
                 case SplitTriggerType.Chest:
                     return "Chest";
+
+                case SplitTriggerType.Enter:
+                    return "Enter";
+
+                case SplitTriggerType.Exit:
+                    return "Exit";
 
                 case SplitTriggerType.KeyQuestItem:
                     return "Key / Quest Item";

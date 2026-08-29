@@ -8,7 +8,9 @@ namespace LiveSplit.CatQuest3
         Chest = 1,
         KeyQuestItem = 2,
         Equipment = 3,
-        Boss = 4
+        Boss = 4,
+        Enter = 5,
+        Exit = 6
     }
 
     public sealed class SplitTriggerSelection
