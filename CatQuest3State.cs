@@ -126,11 +126,21 @@ namespace LiveSplit.CatQuest3
         {
             get
             {
+                // The six save slots are presented as two repeating groups
+                // of three carousel positions:
+                //
+                // tracked 0/3 -> scroll 2
+                // tracked 1/4 -> scroll 3
+                // tracked 2/5 -> scroll 4
+                //
+                // Using modulo 3 preserves the validated relationship for
+                // slots 1-3 and correctly handles slots 4-6.
                 return
                     TrackedSaveGameIndex >= 0 &&
+                    TrackedSaveGameIndex < 6 &&
                     ScrollSelectedElementIndex >= 0 &&
                     ScrollSelectedElementIndex ==
-                        TrackedSaveGameIndex + 2;
+                        (TrackedSaveGameIndex % 3) + 2;
             }
         }
 

@@ -58,6 +58,7 @@
       <SubType>UserControl</SubType>
     </Compile>
     <Compile Include="CatQuest3State.cs" />
+    <Compile Include="ChestCatalog.cs" />
     <Compile Include="ComponentFactory.cs" />
     <Compile Include="MemoryManager.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

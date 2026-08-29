@@ -42,6 +42,9 @@ namespace LiveSplit.CatQuest3
 
         private bool _sceneStartHandledForCurrentCommand;
 
+        private static readonly TimeSpan LoadScreenStartRealtimeCorrection =
+            TimeSpan.FromSeconds(2.10);
+
         // ============================================================
         // CONSTRUCTOR
         // ============================================================
@@ -501,90 +504,113 @@ namespace LiveSplit.CatQuest3
         }
 
         // ============================================================
-        // CONTINUE START DETECTION
+        // CONTINUE / LOAD-SCREEN START DETECTION
         // ============================================================
 
-        private bool IsContinueStart()
+        private bool HasUnconsumedTitleSceneTransition()
         {
-            // StartingGameMode.LOAD = 0.
-            //
-            // LOAD GAME EARLY SIGNAL
-            // ----------------------
-            // When an existing save is activated from the save-select UI,
-            // navigation is halted before the scene-change command appears.
-            //
-            // During ordinary navigation we observed haltNavigation toggles
-            // while the tracked/scroll indices were NOT aligned. On the
-            // actual load activation, the indices were aligned and the
-            // selected save was an existing save.
-            //
-            // This lets Continue/Load start at the user's activation instead
-            // of waiting for the fade-to-white / ChangeSceneCommand.
-
-            // Save-slot scrolling/highlight movement can also set
-            // haltNavigation. False halts observed during normal/rapid
-            // navigation lasted anywhere from 1 to 30 frames.
-            //
-            // The longer false halts began while the tracked/scroll indices
-            // were NOT aligned. A real Load activation began with aligned
-            // indices and remained halted for hundreds of frames.
-            //
-            // Therefore require BOTH:
-            // 1) the halt began while the save indices were aligned, and
-            // 2) the halt has remained active for 10 consecutive frames.
-            //
-            // Equality makes this a one-shot event.
-            bool sustainedQualifiedLoadHalt =
-                _haltNavigationFrames == 10 &&
-                _haltBeganWithMatchingIndices;
-
-            bool earlyLoadStart =
-                _gameState.StartingGameMode == 0 &&
-                !_gameState.SelectedSaveIsNewSave &&
-                _gameState.SaveIndicesMatch &&
-                sustainedQualifiedLoadHalt;
-
-            if (earlyLoadStart)
-            {
-                return true;
-            }
-
-            // Keep the original scene-command detector as a fallback for
-            // Continue paths that do not pass through the save-slot
-            // activation signal above.
-
-            if (
-                _gameState.StartingGameMode != 0
-            )
-            {
-                return false;
-            }
-
-            if (
-                !_gameState.HasChangeSceneCommand
-            )
-            {
-                return false;
-            }
-
-            if (
-                _sceneStartHandledForCurrentCommand
-            )
-            {
-                return false;
-            }
-
             return
+                _gameState.StartingGameMode == 0 &&
+                _gameState.HasChangeSceneCommand &&
+                !_sceneStartHandledForCurrentCommand &&
                 _gameState.CurrentSceneName ==
                     "TitleScene" &&
-                _gameState.TargetSceneName ==
-                    "MainOverworld" &&
+                !string.IsNullOrEmpty(
+                    _gameState.TargetSceneName) &&
+                _gameState.TargetSceneName !=
+                    "TitleScene" &&
                 _gameState.SceneChangeProcessStarted;
+        }
+
+        private bool IsLoadScreenStart()
+        {
+            // LOAD SCREEN -> selected existing save
+            //
+            // A real save-slot Load keeps SaveLoadPanel navigation halted
+            // through the later, reliable title-scene transition. This is
+            // used only to CLASSIFY the transition as a Load Screen start.
+            //
+            // We intentionally do not use SaveIndicesMatch here. Carousel
+            // orientation made that value unreliable for slots 4-6.
+            //
+            // Returning from gameplay to the title can also halt navigation,
+            // but its target scene is TitleScene, so it cannot satisfy the
+            // title -> non-title transition above.
+
+            return
+                HasUnconsumedTitleSceneTransition() &&
+                _gameState.HaltNavigation &&
+                !_gameState.SelectedSaveIsNewSave;
+        }
+
+        private bool IsContinueButtonStart()
+        {
+            // PLAIN TITLE-SCREEN CONTINUE
+            //
+            // HasUnconsumedTitleSceneTransition() already guarantees a
+            // TitleScene -> non-TitleScene transition. Plain Continue can
+            // restore the save into ANY saved scene (overworld, cave,
+            // dungeon, interior, etc.), so the target must not be restricted
+            // to MainOverworld.
+            //
+            // Callers MUST check IsLoadScreenStart() first. A Load Screen
+            // transition is classified by SaveLoadPanel navigation still
+            // being halted at this same reliable scene-transition point.
+
+            return
+                HasUnconsumedTitleSceneTransition();
+        }
+
+        private void StartLoadScreenWithRealtimeCorrection()
+        {
+            _timerModel.Start();
+
+            // The reliable Load Screen scene/fade signal arrives about
+            // 2.10 seconds after the player's Load activation.
+            //
+            // Keep this run as REAL TIME. Moving both real-time start
+            // timestamps backward makes LiveSplit begin at +2.10 seconds
+            // and then continue as ordinary wall-clock Real Time.
+            //
+            // Game Time is deliberately untouched so a future load remover
+            // can manage Game Time independently.
+            _state.AdjustedStartTime =
+                _state.AdjustedStartTime -
+                LoadScreenStartRealtimeCorrection;
+
+            _state.StartTimeWithOffset =
+                _state.StartTimeWithOffset -
+                LoadScreenStartRealtimeCorrection;
+
+            Trace.WriteLine(
+                "LOAD SCREEN REAL-TIME CORRECTION | +" +
+                LoadScreenStartRealtimeCorrection.TotalSeconds.ToString("F2") +
+                " seconds"
+            );
         }
 
         private void CheckContinueStart()
         {
-            if (!IsContinueStart())
+            // The user-facing "Continue" setting covers both ways of loading
+            // an existing save, but they are kept separate internally:
+            //
+            //   CONTINUE BUTTON START = plain title-screen Continue
+            //   LOAD SCREEN START     = Load menu -> chosen save
+            //
+            // Load Screen MUST be checked first because a Load into
+            // MainOverworld also matches the plain Continue scene pattern.
+
+            bool loadScreenStart =
+                IsLoadScreenStart();
+
+            bool continueButtonStart =
+                !loadScreenStart &&
+                IsContinueButtonStart();
+
+            if (
+                !loadScreenStart &&
+                !continueButtonStart
+            )
             {
                 return;
             }
@@ -592,10 +618,23 @@ namespace LiveSplit.CatQuest3
             _sceneStartHandledForCurrentCommand =
                 true;
 
+            if (loadScreenStart)
+            {
+                Trace.WriteLine(
+                    "LOAD SCREEN START"
+                );
+
+                StartLoadScreenWithRealtimeCorrection();
+
+                return;
+            }
+
             Trace.WriteLine(
-                "CONTINUE START"
+                "CONTINUE BUTTON START"
             );
 
+            // Preserve plain Continue exactly: normal Real Time beginning
+            // at zero, with no +2.10 second Load Screen correction.
             _timerModel.Start();
         }
 
@@ -611,42 +650,61 @@ namespace LiveSplit.CatQuest3
             bool emptySlotStart =
                 IsEmptySlotStart();
 
-            bool continueStart =
-                IsContinueStart();
+            bool loadScreenStart =
+                IsLoadScreenStart();
+
+            bool continueButtonStart =
+                !loadScreenStart &&
+                IsContinueButtonStart();
 
             if (
                 !overwriteStart &&
                 !emptySlotStart &&
-                !continueStart
+                !loadScreenStart &&
+                !continueButtonStart
             )
             {
                 return;
             }
 
-            string reason;
-
             if (overwriteStart)
             {
-                reason =
-                    "OVERWRITE";
-            }
-            else if (emptySlotStart)
-            {
-                reason =
-                    "EMPTY SLOT";
-            }
-            else
-            {
-                reason =
-                    "CONTINUE";
+                Trace.WriteLine(
+                    "ANY START - OVERWRITE"
+                );
 
-                _sceneStartHandledForCurrentCommand =
-                    true;
+                _timerModel.Start();
+
+                return;
+            }
+
+            if (emptySlotStart)
+            {
+                Trace.WriteLine(
+                    "ANY START - EMPTY SLOT"
+                );
+
+                _timerModel.Start();
+
+                return;
+            }
+
+            _sceneStartHandledForCurrentCommand =
+                true;
+
+            if (loadScreenStart)
+            {
+                Trace.WriteLine(
+                    "ANY START - LOAD SCREEN"
+                );
+
+                StartLoadScreenWithRealtimeCorrection();
+
+                return;
             }
 
             Trace.WriteLine(
-                "ANY START - " +
-                reason
+                "ANY START - CONTINUE BUTTON"
             );
 
             _timerModel.Start();
@@ -716,7 +774,11 @@ namespace LiveSplit.CatQuest3
             )
             {
                 Trace.WriteLine(
-                    "CHEST OPENED | GUID: " +
+                    "CHEST OPENED | " +
+                    ChestCatalog.GetDisplayName(
+                        guid
+                    ) +
+                    " | GUID: " +
                     guid
                 );
             }
