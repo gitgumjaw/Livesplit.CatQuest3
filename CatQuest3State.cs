@@ -191,6 +191,43 @@ namespace LiveSplit.CatQuest3
         }
 
         // ============================================================
+        // BOSS DEATH DETECTION
+        //
+        // GameComponentsLookup:
+        // AnimationDone = 11
+        // BossTrait     = 41
+        // UnitConfig    = 391
+        // ============================================================
+
+        private bool _bossDeathBaselineReady;
+
+        private readonly HashSet<uint> _knownAnimationDoneBossEntities =
+            new HashSet<uint>();
+
+        public List<BossAnimationDoneEvent> NewlyAnimationDoneBosses
+        {
+            get;
+            private set;
+        } = new List<BossAnimationDoneEvent>();
+
+        public sealed class BossAnimationDoneEvent
+        {
+            public uint EntityAddress { get; private set; }
+            public uint UnitConfigAddress { get; private set; }
+            public string UnitName { get; private set; }
+
+            public BossAnimationDoneEvent(
+                uint entityAddress,
+                uint unitConfigAddress,
+                string unitName)
+            {
+                EntityAddress = entityAddress;
+                UnitConfigAddress = unitConfigAddress;
+                UnitName = unitName;
+            }
+        }
+
+        // ============================================================
         // CONSTRUCTOR / SETUP
         // ============================================================
 
@@ -223,6 +260,11 @@ namespace LiveSplit.CatQuest3
         public void SetContextsStaticStorage(
             uint contextsStaticStorage)
         {
+            if (_contextsStaticStorage != contextsStaticStorage)
+            {
+                ResetBossDeathBaseline();
+            }
+
             _contextsStaticStorage =
                 contextsStaticStorage;
         }
@@ -710,6 +752,135 @@ namespace LiveSplit.CatQuest3
 
             _chestBaselineReady =
                 false;
+        }
+
+        // ============================================================
+        // BOSS DEATH DETECTION
+        // ============================================================
+
+        public void UpdateBossDeathState()
+        {
+            NewlyAnimationDoneBosses.Clear();
+
+            uint contexts = GetContexts();
+            if (contexts == 0)
+            {
+                ResetBossDeathBaseline();
+                return;
+            }
+
+            uint gameContext = _memory.ReadPointer(contexts + 0x1C);
+            if (gameContext == 0)
+            {
+                ResetBossDeathBaseline();
+                return;
+            }
+
+            HashSet<uint> currentDoneBossEntities = new HashSet<uint>();
+            Dictionary<uint, uint> currentUnitConfigs = new Dictionary<uint, uint>();
+
+            if (!TryReadAnimationDoneBosses(gameContext, currentDoneBossEntities, currentUnitConfigs))
+            {
+                return;
+            }
+
+            if (!_bossDeathBaselineReady)
+            {
+                _knownAnimationDoneBossEntities.Clear();
+                foreach (uint entity in currentDoneBossEntities)
+                    _knownAnimationDoneBossEntities.Add(entity);
+
+                _bossDeathBaselineReady = true;
+                return;
+            }
+
+            foreach (uint entity in currentDoneBossEntities)
+            {
+                if (_knownAnimationDoneBossEntities.Contains(entity))
+                    continue;
+
+                uint unitConfig = 0;
+                currentUnitConfigs.TryGetValue(entity, out unitConfig);
+
+                string unitName = string.Empty;
+
+                if (unitConfig != 0)
+                {
+                    // UnitConfig.unitName = +0x1C
+                    uint unitNameString =
+                        _memory.ReadPointer(
+                            unitConfig + 0x1C
+                        );
+
+                    if (unitNameString != 0)
+                    {
+                        unitName =
+                            _memory.ReadMonoString(
+                                unitNameString
+                            );
+                    }
+                }
+
+                NewlyAnimationDoneBosses.Add(
+                    new BossAnimationDoneEvent(
+                        entity,
+                        unitConfig,
+                        unitName
+                    )
+                );
+            }
+
+            _knownAnimationDoneBossEntities.Clear();
+            foreach (uint entity in currentDoneBossEntities)
+                _knownAnimationDoneBossEntities.Add(entity);
+        }
+
+        private bool TryReadAnimationDoneBosses(
+            uint gameContext,
+            HashSet<uint> doneBossEntities,
+            Dictionary<uint, uint> unitConfigs)
+        {
+            uint entities = _memory.ReadPointer(gameContext + 0x28);
+            if (entities == 0) return false;
+
+            uint slots = _memory.ReadPointer(entities + 0x0C);
+            int lastIndex = (int)_memory.ReadUInt32(new System.IntPtr(entities + 0x1C));
+            if (slots == 0 || lastIndex < 0 || lastIndex > 10000) return false;
+
+            for (int i = 0; i < lastIndex; i++)
+            {
+                uint entity = _memory.ReadPointer(slots + 0x10u + (uint)(i * 0x0C) + 0x08u);
+                if (entity == 0) continue;
+
+                uint components = _memory.ReadPointer(entity + 0x24);
+                if (components == 0) continue;
+
+                int componentCount = (int)_memory.ReadUInt32(new System.IntPtr(components + 0x0C));
+                if (componentCount <= 391) continue;
+
+                uint bossTraitComponent = _memory.ReadPointer(components + 0x10u + (uint)(41 * 4));
+                if (bossTraitComponent == 0) continue;
+
+                uint animationDoneComponent = _memory.ReadPointer(components + 0x10u + (uint)(11 * 4));
+                if (animationDoneComponent == 0) continue;
+
+                uint unitConfigComponent = _memory.ReadPointer(components + 0x10u + (uint)(391 * 4));
+                uint unitConfig = 0;
+                if (unitConfigComponent != 0)
+                    unitConfig = _memory.ReadPointer(unitConfigComponent + 0x08);
+
+                doneBossEntities.Add(entity);
+                unitConfigs[entity] = unitConfig;
+            }
+
+            return true;
+        }
+
+        private void ResetBossDeathBaseline()
+        {
+            _knownAnimationDoneBossEntities.Clear();
+            NewlyAnimationDoneBosses.Clear();
+            _bossDeathBaselineReady = false;
         }
 
         // ============================================================

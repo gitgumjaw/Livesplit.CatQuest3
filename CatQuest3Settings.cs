@@ -888,12 +888,18 @@ namespace LiveSplit.CatQuest3
                 type == SplitTriggerType.Boss
             )
             {
-                comboBox.Items.Add(
-                    new SpecificTriggerOption(
-                        string.Empty,
-                        "(Boss triggers not implemented yet)"
-                    )
-                );
+                foreach (
+                    BossCatalog.BossEntry boss
+                    in BossCatalog.Entries
+                )
+                {
+                    comboBox.Items.Add(
+                        new SpecificTriggerOption(
+                            boss.Value,
+                            boss.DisplayName
+                        )
+                    );
+                }
             }
 
             SelectSpecificValue(

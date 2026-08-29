@@ -406,6 +406,22 @@ namespace LiveSplit.CatQuest3
                     ex.Message
                 );
             }
+
+            try
+            {
+                _gameState.UpdateBossDeathState();
+
+                CheckConfiguredBossSplit();
+
+                CheckBossDeathDebug();
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine(
+                    "BOSS DEATH ERROR | " +
+                    ex.Message
+                );
+            }
         }
 
         // ============================================================
@@ -995,6 +1011,107 @@ namespace LiveSplit.CatQuest3
                     ) +
                     " | GUID: " +
                     guid
+                );
+            }
+        }
+
+        // ============================================================
+        // BOSS KILL SPLIT
+        // ============================================================
+
+        private void CheckConfiguredBossSplit()
+        {
+            if (
+                _gameState.NewlyAnimationDoneBosses == null ||
+                _gameState.NewlyAnimationDoneBosses.Count == 0
+            )
+            {
+                return;
+            }
+
+            SplitTriggerSelection trigger =
+                GetCurrentSplitTrigger();
+
+            if (
+                trigger.Type !=
+                    SplitTriggerType.Boss ||
+                string.IsNullOrEmpty(
+                    trigger.Value
+                )
+            )
+            {
+                return;
+            }
+
+            BossCatalog.BossEntry configuredBoss;
+
+            if (
+                !BossCatalog.TryGetByValue(
+                    trigger.Value,
+                    out configuredBoss
+                )
+            )
+            {
+                return;
+            }
+
+            foreach (
+                CatQuest3State.BossAnimationDoneEvent bossEvent
+                in _gameState.NewlyAnimationDoneBosses
+            )
+            {
+                if (
+                    !configuredBoss.MatchesUnitName(
+                        bossEvent.UnitName
+                    )
+                )
+                {
+                    continue;
+                }
+
+                Trace.WriteLine(
+                    "SPLIT TRIGGER | BOSS KILL | " +
+                    configuredBoss.DisplayName +
+                    " | UNIT NAME: " +
+                    bossEvent.UnitName +
+                    " | SPLIT " +
+                    (_state.CurrentSplitIndex + 1)
+                    .ToString()
+                );
+
+                _timerModel.Split();
+
+                return;
+            }
+        }
+
+        // ============================================================
+        // BOSS DEATH DEBUG
+        // ============================================================
+
+        private void CheckBossDeathDebug()
+        {
+            if (_gameState.NewlyAnimationDoneBosses == null)
+            {
+                return;
+            }
+
+            foreach (
+                CatQuest3State.BossAnimationDoneEvent bossEvent
+                in _gameState.NewlyAnimationDoneBosses
+            )
+            {
+                Trace.WriteLine(
+                    "BOSS ANIMATION DONE | UNIT NAME: " +
+                    (
+                        string.IsNullOrEmpty(bossEvent.UnitName)
+                            ? "<empty>"
+                            : bossEvent.UnitName
+                    ) +
+                    " | ENTITY: 0x" +
+                    bossEvent.EntityAddress.ToString("X8") +
+                    " | UNIT CONFIG: 0x" +
+                    bossEvent.UnitConfigAddress.ToString("X8")
                 );
             }
         }
