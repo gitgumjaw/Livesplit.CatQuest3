@@ -71,7 +71,9 @@ namespace LiveSplit.CatQuest3
                 );
 
             _settings =
-                new CatQuest3Settings();
+                new CatQuest3Settings(
+                    _state
+                );
 
             Trace.WriteLine(
                 "CAT QUEST III AUTOSPLITTER LOADED"
@@ -101,12 +103,16 @@ namespace LiveSplit.CatQuest3
         public Control GetSettingsControl(
             LayoutMode mode)
         {
+            _settings.RefreshSplitRows();
+
             return _settings;
         }
 
         public XmlNode GetSettings(
             XmlDocument document)
         {
+            _settings.RefreshSplitRows();
+
             XmlElement settings =
                 document.CreateElement(
                     "Settings"
@@ -125,6 +131,50 @@ namespace LiveSplit.CatQuest3
                 startTrigger
             );
 
+            XmlElement splitTriggers =
+                document.CreateElement(
+                    "SplitTriggers"
+                );
+
+            foreach (
+                System.Collections.Generic.KeyValuePair<
+                    int,
+                    SplitTriggerSelection
+                > pair
+                in _settings.GetConfiguredSplitTriggers()
+            )
+            {
+                XmlElement split =
+                    document.CreateElement(
+                        "Split"
+                    );
+
+                split.SetAttribute(
+                    "Index",
+                    pair.Key.ToString()
+                );
+
+                split.SetAttribute(
+                    "Type",
+                    ((int)pair.Value.Type)
+                    .ToString()
+                );
+
+                split.SetAttribute(
+                    "Value",
+                    pair.Value.Value ??
+                    string.Empty
+                );
+
+                splitTriggers.AppendChild(
+                    split
+                );
+            }
+
+            settings.AppendChild(
+                splitTriggers
+            );
+
             return settings;
         }
 
@@ -141,33 +191,102 @@ namespace LiveSplit.CatQuest3
                     "StartTrigger"
                 );
 
-            if (startTriggerNode == null)
-            {
-                return;
-            }
-
             if (
-                !int.TryParse(
+                startTriggerNode != null &&
+                int.TryParse(
                     startTriggerNode.InnerText,
                     out int modeValue
-                )
-            )
-            {
-                return;
-            }
-
-            if (
-                !Enum.IsDefined(
+                ) &&
+                Enum.IsDefined(
                     typeof(StartTriggerMode),
                     modeValue
                 )
             )
             {
+                _settings.StartTrigger =
+                    (StartTriggerMode)modeValue;
+            }
+
+            _settings.ClearSplitTriggers();
+
+            XmlNodeList splitNodes =
+                settings.SelectNodes(
+                    "SplitTriggers/Split"
+                );
+
+            if (splitNodes == null)
+            {
                 return;
             }
 
-            _settings.StartTrigger =
-                (StartTriggerMode)modeValue;
+            foreach (
+                XmlNode splitNode
+                in splitNodes
+            )
+            {
+                if (
+                    splitNode.Attributes == null
+                )
+                {
+                    continue;
+                }
+
+                XmlAttribute indexAttribute =
+                    splitNode.Attributes[
+                        "Index"
+                    ];
+
+                XmlAttribute typeAttribute =
+                    splitNode.Attributes[
+                        "Type"
+                    ];
+
+                XmlAttribute valueAttribute =
+                    splitNode.Attributes[
+                        "Value"
+                    ];
+
+                if (
+                    indexAttribute == null ||
+                    typeAttribute == null
+                )
+                {
+                    continue;
+                }
+
+                if (
+                    !int.TryParse(
+                        indexAttribute.Value,
+                        out int splitIndex
+                    ) ||
+                    !int.TryParse(
+                        typeAttribute.Value,
+                        out int triggerTypeValue
+                    )
+                )
+                {
+                    continue;
+                }
+
+                if (
+                    !Enum.IsDefined(
+                        typeof(SplitTriggerType),
+                        triggerTypeValue
+                    )
+                )
+                {
+                    continue;
+                }
+
+                _settings.SetSplitTrigger(
+                    splitIndex,
+                    (SplitTriggerType)
+                        triggerTypeValue,
+                    valueAttribute != null
+                        ? valueAttribute.Value
+                        : string.Empty
+                );
+            }
         }
 
         // ============================================================
@@ -256,7 +375,7 @@ namespace LiveSplit.CatQuest3
             // EXISTING SPLITS
             // --------------------------------------------------------
 
-            CheckShipKeySplit();
+            CheckConfiguredShipKeySplit();
 
             // --------------------------------------------------------
             // SAVE HISTORY
@@ -275,6 +394,8 @@ namespace LiveSplit.CatQuest3
             try
             {
                 _gameState.UpdateChestState();
+
+                CheckConfiguredChestSplit();
 
                 CheckChestDebug();
             }
@@ -711,10 +832,43 @@ namespace LiveSplit.CatQuest3
         }
 
         // ============================================================
+        // CONFIGURED SPLIT TRIGGERS
+        // ============================================================
+
+        private SplitTriggerSelection GetCurrentSplitTrigger()
+        {
+            if (
+                _timerModel
+                    .CurrentState
+                    .CurrentPhase !=
+                TimerPhase.Running
+            )
+            {
+                return SplitTriggerSelection.None;
+            }
+
+            int splitIndex =
+                _state.CurrentSplitIndex;
+
+            if (
+                splitIndex < 0 ||
+                splitIndex >=
+                    _state.Run.Count
+            )
+            {
+                return SplitTriggerSelection.None;
+            }
+
+            return _settings.GetSplitTrigger(
+                splitIndex
+            );
+        }
+
+        // ============================================================
         // SHIP KEY SPLIT
         // ============================================================
 
-        private void CheckShipKeySplit()
+        private void CheckConfiguredShipKeySplit()
         {
             if (
                 !_gameState.ShipKeyObtained
@@ -727,35 +881,96 @@ namespace LiveSplit.CatQuest3
                 "SHIP KEY OBTAINED"
             );
 
+            SplitTriggerSelection trigger =
+                GetCurrentSplitTrigger();
+
             if (
-                _timerModel
-                    .CurrentState
-                    .CurrentPhase ==
-                TimerPhase.NotRunning
+                trigger.Type !=
+                    SplitTriggerType.KeyQuestItem ||
+                !string.Equals(
+                    trigger.Value,
+                    "ShipKey",
+                    StringComparison.OrdinalIgnoreCase
+                )
             )
             {
-                Trace.WriteLine(
-                    "SHIP KEY SPLIT IGNORED - TIMER NOT RUNNING"
-                );
-
                 return;
             }
 
             Trace.WriteLine(
-                "SHIP KEY OBTAINED - SPLIT"
+                "SPLIT TRIGGER | SHIP KEY | SPLIT " +
+                (_state.CurrentSplitIndex + 1).ToString()
             );
 
             _timerModel.Split();
         }
 
         // ============================================================
+        // CHEST SPLIT
+        // ============================================================
+
+        private void CheckConfiguredChestSplit()
+        {
+            if (
+                _gameState.NewlyOpenedChestGuids ==
+                    null ||
+                _gameState.NewlyOpenedChestGuids.Count ==
+                    0
+            )
+            {
+                return;
+            }
+
+            SplitTriggerSelection trigger =
+                GetCurrentSplitTrigger();
+
+            if (
+                trigger.Type !=
+                    SplitTriggerType.Chest ||
+                string.IsNullOrEmpty(
+                    trigger.Value
+                )
+            )
+            {
+                return;
+            }
+
+            foreach (
+                string openedGuid
+                in _gameState.NewlyOpenedChestGuids
+            )
+            {
+                if (
+                    !string.Equals(
+                        openedGuid,
+                        trigger.Value,
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
+                {
+                    continue;
+                }
+
+                Trace.WriteLine(
+                    "SPLIT TRIGGER | CHEST | " +
+                    ChestCatalog.GetDisplayName(
+                        openedGuid
+                    ) +
+                    " | SPLIT " +
+                    (_state.CurrentSplitIndex + 1)
+                    .ToString()
+                );
+
+                _timerModel.Split();
+
+                // One physical game event should advance at most one
+                // LiveSplit segment during this update.
+                return;
+            }
+        }
+
+        // ============================================================
         // CHEST DEBUG
-        //
-        // No timer action yet.
-        //
-        // CatQuest3State baselines all chest GUIDs already present in
-        // the active save and exposes only GUIDs added during the most
-        // recent update.
         // ============================================================
 
         private void CheckChestDebug()
