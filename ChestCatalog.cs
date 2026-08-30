@@ -12,7 +12,8 @@ namespace LiveSplit.CatQuest3
         public enum ChestDetectionMode
         {
             SavedGuid = 0,
-            RuntimeSceneChestType = 1
+            RuntimeSceneChestType = 1,
+            RuntimeSceneRewardChest = 2
         }
 
         public sealed class ChestEntry
@@ -70,6 +71,25 @@ namespace LiveSplit.CatQuest3
                 SceneName = sceneName;
                 RuntimeChestType = runtimeChestType;
             }
+
+            public ChestEntry(
+                string value,
+                string displayName,
+                string sceneName,
+                bool runtimeSceneRewardChest
+            )
+            {
+                Value = value;
+                Guid = string.Empty;
+                DisplayName = displayName;
+                InternalAssetName = string.Empty;
+
+                DetectionMode =
+                    ChestDetectionMode.RuntimeSceneRewardChest;
+
+                SceneName = sceneName;
+                RuntimeChestType = 0;
+            }
         }
 
         private static readonly ChestEntry[] _entries =
@@ -93,6 +113,42 @@ namespace LiveSplit.CatQuest3
                 "Infinity Tower — Silver Chest",
                 "InfinityTower",
                 1
+            ),
+            // Tavern Tales boss-reward chests.
+            //
+            // Each Tavern Tales boss uses a unique arena scene. Runtime testing
+            // showed the reward chest is a live ChestBehaviour with no ChestID.
+            // We therefore identify these by arena scene and accept visible
+            // reward-chest types while excluding chestType 4 fast/random loot.
+            new ChestEntry(
+                "Runtime_TavernTales_BoarKing",
+                "Tavern Tales — Boar King Chest",
+                "TavernTalesArena_BoarBoss",
+                true
+            ),
+            new ChestEntry(
+                "Runtime_TavernTales_Gentlebros",
+                "Tavern Tales — Gentlebros Chest",
+                "Interior_GentlebrosArena",
+                true
+            ),
+            new ChestEntry(
+                "Runtime_TavernTales_Meowtallika",
+                "Tavern Tales — Meowtallika Chest",
+                "TavernTalesArena_MewtallicaBoss",
+                true
+            ),
+            new ChestEntry(
+                "Runtime_TavernTales_PiratKing",
+                "Tavern Tales — Pi-rat King Chest",
+                "TavernTalesArena_PirateKing",
+                true
+            ),
+            new ChestEntry(
+                "Runtime_TavernTales_Takomeowki",
+                "Tavern Tales — Takomeowki Chest",
+                "TavernTalesArena_SpicySquidTakomeowkiBoss",
+                true
             ),
             new ChestEntry(
                 "650a3b3f9dc251d418a1210095932574",

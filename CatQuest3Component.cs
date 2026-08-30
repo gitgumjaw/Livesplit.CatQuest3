@@ -420,27 +420,35 @@ namespace LiveSplit.CatQuest3
             }
 
             // --------------------------------------------------------
-            // RUNTIME CHEST DIAGNOSTIC - ISOLATED
+            // RUNTIME CHEST SCAN - CURRENT SPLIT + LOCATION GATED
             // --------------------------------------------------------
             //
-            // This does not split. It only reports live chest entities so
-            // repeatable Tavern Tales / Infinity Tower rewards can be
-            // identified without changing the confirmed Chest trigger.
+            // Walking every live Game entity is comparatively expensive.
+            // Only do it when:
+            //
+            //   1. the CURRENT LiveSplit segment is configured for one of
+            //      the repeatable runtime chest entries, AND
+            //   2. the player is already in that entry's matching scene.
+            //
+            // Everywhere else, the runtime chest scanner costs nothing.
 
-            try
+            if (ShouldScanRuntimeChests())
             {
-                _gameState.UpdateRuntimeChestDiagnostic();
+                try
+                {
+                    _gameState.UpdateRuntimeChestDiagnostic();
 
-                CheckConfiguredRuntimeChestSplit();
+                    CheckConfiguredRuntimeChestSplit();
 
-                CheckRuntimeChestDiagnostic();
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine(
-                    "RUNTIME CHEST DIAGNOSTIC ERROR | " +
-                    ex.Message
-                );
+                    CheckRuntimeChestDiagnostic();
+                }
+                catch (Exception ex)
+                {
+                    Trace.WriteLine(
+                        "RUNTIME CHEST ERROR | " +
+                        ex.Message
+                    );
+                }
             }
 
             try
@@ -1162,6 +1170,60 @@ namespace LiveSplit.CatQuest3
         }
 
         // ============================================================
+        // RUNTIME CHEST SCAN GATE
+        // ============================================================
+
+        private bool ShouldScanRuntimeChests()
+        {
+            SplitTriggerSelection trigger =
+                GetCurrentSplitTrigger();
+
+            if (
+                trigger.Type !=
+                    SplitTriggerType.Chest ||
+                string.IsNullOrEmpty(
+                    trigger.Value
+                )
+            )
+            {
+                return false;
+            }
+
+            ChestCatalog.ChestEntry configuredChest;
+
+            if (
+                !ChestCatalog.TryGetByValue(
+                    trigger.Value,
+                    out configuredChest
+                )
+            )
+            {
+                return false;
+            }
+
+            bool isRuntimeChest =
+                configuredChest.DetectionMode ==
+                    ChestCatalog.ChestDetectionMode.RuntimeSceneChestType ||
+                configuredChest.DetectionMode ==
+                    ChestCatalog.ChestDetectionMode.RuntimeSceneRewardChest;
+
+            if (!isRuntimeChest)
+            {
+                return false;
+            }
+
+            return
+                !string.IsNullOrEmpty(
+                    configuredChest.SceneName
+                ) &&
+                string.Equals(
+                    _gameState.ActiveSceneName,
+                    configuredChest.SceneName,
+                    StringComparison.Ordinal
+                );
+        }
+
+        // ============================================================
         // REPEATABLE RUNTIME CHEST SPLIT
         // ============================================================
 
@@ -1195,9 +1257,17 @@ namespace LiveSplit.CatQuest3
                 !ChestCatalog.TryGetByValue(
                     trigger.Value,
                     out configuredChest
-                ) ||
+                )
+            )
+            {
+                return;
+            }
+
+            if (
                 configuredChest.DetectionMode !=
-                    ChestCatalog.ChestDetectionMode.RuntimeSceneChestType
+                    ChestCatalog.ChestDetectionMode.RuntimeSceneChestType &&
+                configuredChest.DetectionMode !=
+                    ChestCatalog.ChestDetectionMode.RuntimeSceneRewardChest
             )
             {
                 return;
@@ -1219,10 +1289,32 @@ namespace LiveSplit.CatQuest3
                 in _gameState.NewlyOpenedRuntimeChests
             )
             {
+                bool matched;
+
                 if (
-                    chestEvent.ChestType !=
-                    configuredChest.RuntimeChestType
+                    configuredChest.DetectionMode ==
+                    ChestCatalog.ChestDetectionMode.RuntimeSceneChestType
                 )
+                {
+                    // Infinity Tower entries deliberately distinguish
+                    // Common (0) from Silver (1).
+                    matched =
+                        chestEvent.ChestType ==
+                        configuredChest.RuntimeChestType;
+                }
+                else
+                {
+                    // Tavern Tales rewards are identified by their unique
+                    // arena scene. Ignore the known fast/random loot path.
+                    //
+                    // We do not hard-code a Tavern Tales chest type because
+                    // the arena identity is already sufficient and avoids
+                    // assuming its visual chest class.
+                    matched =
+                        chestEvent.ChestType != 4;
+                }
+
+                if (!matched)
                 {
                     continue;
                 }
