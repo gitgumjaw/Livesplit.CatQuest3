@@ -9,11 +9,27 @@ namespace LiveSplit.CatQuest3
     /// </summary>
     public static class ChestCatalog
     {
+        public enum ChestDetectionMode
+        {
+            SavedGuid = 0,
+            RuntimeSceneChestType = 1
+        }
+
         public sealed class ChestEntry
         {
+            // Value is the stable string saved in LiveSplit settings.
+            // Existing permanent chests keep Value == Guid, preserving
+            // compatibility with every previously saved layout.
+            public string Value { get; private set; }
+
             public string Guid { get; private set; }
             public string DisplayName { get; private set; }
             public string InternalAssetName { get; private set; }
+
+            public ChestDetectionMode DetectionMode { get; private set; }
+
+            public string SceneName { get; private set; }
+            public uint RuntimeChestType { get; private set; }
 
             public ChestEntry(
                 string guid,
@@ -21,14 +37,63 @@ namespace LiveSplit.CatQuest3
                 string internalAssetName
             )
             {
+                Value = guid;
                 Guid = guid;
                 DisplayName = displayName;
                 InternalAssetName = internalAssetName;
+
+                DetectionMode =
+                    ChestDetectionMode.SavedGuid;
+
+                SceneName =
+                    string.Empty;
+
+                RuntimeChestType =
+                    0;
+            }
+
+            public ChestEntry(
+                string value,
+                string displayName,
+                string sceneName,
+                uint runtimeChestType
+            )
+            {
+                Value = value;
+                Guid = string.Empty;
+                DisplayName = displayName;
+                InternalAssetName = string.Empty;
+
+                DetectionMode =
+                    ChestDetectionMode.RuntimeSceneChestType;
+
+                SceneName = sceneName;
+                RuntimeChestType = runtimeChestType;
             }
         }
 
         private static readonly ChestEntry[] _entries =
         {
+            // Repeatable Infinity Tower rewards.
+            //
+            // Runtime ChestBehaviour testing established:
+            //   chestType 0 = Common chest
+            //   chestType 1 = Silver chest
+            //
+            // Enemy/random fast-loot drops use chestType 4 and therefore do
+            // not match either of these entries.
+            new ChestEntry(
+                "Runtime_InfinityTower_Common",
+                "Infinity Tower — Common Chest",
+                "InfinityTower",
+                0
+            ),
+            new ChestEntry(
+                "Runtime_InfinityTower_Silver",
+                "Infinity Tower — Silver Chest",
+                "InfinityTower",
+                1
+            ),
             new ChestEntry(
                 "650a3b3f9dc251d418a1210095932574",
                 "8 Bit Dungeon — 6F Boss Room Chest",
@@ -944,9 +1009,29 @@ namespace LiveSplit.CatQuest3
         private static readonly Dictionary<string, ChestEntry> _byGuid =
             BuildGuidLookup();
 
+        private static readonly Dictionary<string, ChestEntry> _byValue =
+            BuildValueLookup();
+
         public static IEnumerable<ChestEntry> Entries
         {
             get { return _entries; }
+        }
+
+        public static bool TryGetByValue(
+            string value,
+            out ChestEntry entry
+        )
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                entry = null;
+                return false;
+            }
+
+            return _byValue.TryGetValue(
+                value,
+                out entry
+            );
         }
 
         public static bool TryGetByGuid(
@@ -992,8 +1077,42 @@ namespace LiveSplit.CatQuest3
 
             foreach (ChestEntry entry in _entries)
             {
+                if (
+                    string.IsNullOrEmpty(
+                        entry.Guid
+                    )
+                )
+                {
+                    continue;
+                }
+
                 lookup.Add(
                     entry.Guid,
+                    entry
+                );
+            }
+
+            return lookup;
+        }
+
+        private static Dictionary<string, ChestEntry> BuildValueLookup()
+        {
+            Dictionary<string, ChestEntry> lookup =
+                new Dictionary<string, ChestEntry>();
+
+            foreach (ChestEntry entry in _entries)
+            {
+                if (
+                    string.IsNullOrEmpty(
+                        entry.Value
+                    )
+                )
+                {
+                    continue;
+                }
+
+                lookup.Add(
+                    entry.Value,
                     entry
                 );
             }

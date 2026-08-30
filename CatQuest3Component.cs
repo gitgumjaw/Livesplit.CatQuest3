@@ -419,6 +419,30 @@ namespace LiveSplit.CatQuest3
                 );
             }
 
+            // --------------------------------------------------------
+            // RUNTIME CHEST DIAGNOSTIC - ISOLATED
+            // --------------------------------------------------------
+            //
+            // This does not split. It only reports live chest entities so
+            // repeatable Tavern Tales / Infinity Tower rewards can be
+            // identified without changing the confirmed Chest trigger.
+
+            try
+            {
+                _gameState.UpdateRuntimeChestDiagnostic();
+
+                CheckConfiguredRuntimeChestSplit();
+
+                CheckRuntimeChestDiagnostic();
+            }
+            catch (Exception ex)
+            {
+                Trace.WriteLine(
+                    "RUNTIME CHEST DIAGNOSTIC ERROR | " +
+                    ex.Message
+                );
+            }
+
             try
             {
                 _gameState.UpdateBossDeathState();
@@ -1133,6 +1157,142 @@ namespace LiveSplit.CatQuest3
                     ) +
                     " | GUID: " +
                     guid
+                );
+            }
+        }
+
+        // ============================================================
+        // REPEATABLE RUNTIME CHEST SPLIT
+        // ============================================================
+
+        private void CheckConfiguredRuntimeChestSplit()
+        {
+            if (
+                _gameState.NewlyOpenedRuntimeChests == null ||
+                _gameState.NewlyOpenedRuntimeChests.Count == 0
+            )
+            {
+                return;
+            }
+
+            SplitTriggerSelection trigger =
+                GetCurrentSplitTrigger();
+
+            if (
+                trigger.Type !=
+                    SplitTriggerType.Chest ||
+                string.IsNullOrEmpty(
+                    trigger.Value
+                )
+            )
+            {
+                return;
+            }
+
+            ChestCatalog.ChestEntry configuredChest;
+
+            if (
+                !ChestCatalog.TryGetByValue(
+                    trigger.Value,
+                    out configuredChest
+                ) ||
+                configuredChest.DetectionMode !=
+                    ChestCatalog.ChestDetectionMode.RuntimeSceneChestType
+            )
+            {
+                return;
+            }
+
+            if (
+                !string.Equals(
+                    _gameState.ActiveSceneName,
+                    configuredChest.SceneName,
+                    StringComparison.Ordinal
+                )
+            )
+            {
+                return;
+            }
+
+            foreach (
+                CatQuest3State.RuntimeChestEvent chestEvent
+                in _gameState.NewlyOpenedRuntimeChests
+            )
+            {
+                if (
+                    chestEvent.ChestType !=
+                    configuredChest.RuntimeChestType
+                )
+                {
+                    continue;
+                }
+
+                Trace.WriteLine(
+                    "SPLIT TRIGGER | CHEST | " +
+                    configuredChest.DisplayName +
+                    " | TYPE: " +
+                    chestEvent.ChestType.ToString() +
+                    " | SCENE: " +
+                    (
+                        string.IsNullOrEmpty(
+                            _gameState.ActiveSceneName
+                        )
+                            ? "<unknown>"
+                            : _gameState.ActiveSceneName
+                    ) +
+                    " | SPLIT " +
+                    (_state.CurrentSplitIndex + 1)
+                        .ToString()
+                );
+
+                _timerModel.Split();
+
+                // One physical runtime chest opening advances at most one
+                // LiveSplit segment during this update.
+                return;
+            }
+        }
+
+        // ============================================================
+        // RUNTIME CHEST DIAGNOSTIC
+        // ============================================================
+
+        private void CheckRuntimeChestDiagnostic()
+        {
+            if (_gameState.NewlyOpenedRuntimeChests == null)
+            {
+                return;
+            }
+
+            foreach (
+                CatQuest3State.RuntimeChestEvent chestEvent
+                in _gameState.NewlyOpenedRuntimeChests
+            )
+            {
+                // Only the two repeatable visible reward-chest types currently
+                // used by Infinity Tower are useful here. chestType 4 is the
+                // fast/random entity-loot path and is intentionally ignored.
+                if (
+                    chestEvent.ChestType != 0 &&
+                    chestEvent.ChestType != 1
+                )
+                {
+                    continue;
+                }
+
+                Trace.WriteLine(
+                    "RUNTIME CHEST OPENED | TYPE: " +
+                    chestEvent.ChestType.ToString() +
+                    " | SCENE: " +
+                    (
+                        string.IsNullOrEmpty(
+                            _gameState.ActiveSceneName
+                        )
+                            ? "<unknown>"
+                            : _gameState.ActiveSceneName
+                    ) +
+                    " | ENTITY: 0x" +
+                    chestEvent.EntityAddress.ToString("X8")
                 );
             }
         }

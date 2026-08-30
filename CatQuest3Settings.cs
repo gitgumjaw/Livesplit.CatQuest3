@@ -866,7 +866,7 @@ namespace LiveSplit.CatQuest3
                 {
                     comboBox.Items.Add(
                         new SpecificTriggerOption(
-                            chest.Guid,
+                            chest.Value,
                             chest.DisplayName
                         )
                     );

@@ -53,6 +53,12 @@ namespace LiveSplit.CatQuest3
 
         public string TargetSceneName { get; private set; }
 
+        // Last scene that a started ChangeSceneCommand entered.
+        // Unlike CurrentSceneName / TargetSceneName, this is intentionally
+        // persistent between scene-command frames so runtime events that
+        // happen later in the scene can be classified.
+        public string ActiveSceneName { get; private set; }
+
         // ============================================================
         // SAVE LOAD PANEL
         // ============================================================
@@ -185,6 +191,448 @@ namespace LiveSplit.CatQuest3
         }
 
         // ============================================================
+        // RUNTIME CHEST DIAGNOSTIC
+        //
+        // GameComponentsLookup.Chest = 50
+        // ChestComponent.value = +0x08 -> ChestBehaviour
+        //
+        // ChestBehaviour:
+        // +0x68 -> currentTable
+        // +0x6C -> currentName
+        // +0x70 -> chestID
+        // +0x98 -> chestDataRef
+        // +0xA4 -> opened
+        // +0xBC -> chestType
+        //
+        // ChestID inherits GenericDatabaseEntry:
+        // +0x0C -> Guid
+        //
+        // This diagnostic is intentionally separate from the established
+        // save-data chest detector above. It watches live chest entities,
+        // including repeatable spawned reward chests.
+        // ============================================================
+
+        private bool _runtimeChestBaselineReady;
+
+        private readonly Dictionary<uint, RuntimeChestSnapshot>
+            _knownRuntimeChests =
+                new Dictionary<uint, RuntimeChestSnapshot>();
+
+        public List<RuntimeChestEvent> NewlyFoundRuntimeChests
+        {
+            get;
+            private set;
+        } = new List<RuntimeChestEvent>();
+
+        public List<RuntimeChestEvent> NewlyOpenedRuntimeChests
+        {
+            get;
+            private set;
+        } = new List<RuntimeChestEvent>();
+
+        private sealed class RuntimeChestSnapshot
+        {
+            public uint BehaviourAddress { get; private set; }
+            public string Guid { get; private set; }
+            public bool Opened { get; private set; }
+
+            public RuntimeChestSnapshot(
+                uint behaviourAddress,
+                string guid,
+                bool opened)
+            {
+                BehaviourAddress = behaviourAddress;
+                Guid = guid;
+                Opened = opened;
+            }
+        }
+
+        public sealed class RuntimeChestEvent
+        {
+            public uint EntityAddress { get; private set; }
+            public uint BehaviourAddress { get; private set; }
+            public uint ChestIdAddress { get; private set; }
+            public uint CurrentTableAddress { get; private set; }
+            public uint ChestDataRefAddress { get; private set; }
+            public uint ChestType { get; private set; }
+            public string CurrentName { get; private set; }
+            public string Guid { get; private set; }
+
+            public RuntimeChestEvent(
+                uint entityAddress,
+                uint behaviourAddress,
+                uint chestIdAddress,
+                uint currentTableAddress,
+                uint chestDataRefAddress,
+                uint chestType,
+                string currentName,
+                string guid)
+            {
+                EntityAddress = entityAddress;
+                BehaviourAddress = behaviourAddress;
+                ChestIdAddress = chestIdAddress;
+                CurrentTableAddress = currentTableAddress;
+                ChestDataRefAddress = chestDataRefAddress;
+                ChestType = chestType;
+                CurrentName = currentName;
+                Guid = guid;
+            }
+        }
+
+        public void UpdateRuntimeChestDiagnostic()
+        {
+            NewlyFoundRuntimeChests.Clear();
+            NewlyOpenedRuntimeChests.Clear();
+
+            uint contexts = GetContexts();
+            if (contexts == 0)
+            {
+                ResetRuntimeChestDiagnostic();
+                return;
+            }
+
+            uint gameContext = _memory.ReadPointer(contexts + 0x1C);
+            if (gameContext == 0)
+            {
+                ResetRuntimeChestDiagnostic();
+                return;
+            }
+
+            Dictionary<uint, RuntimeChestSnapshot> currentChests =
+                new Dictionary<uint, RuntimeChestSnapshot>();
+
+            Dictionary<uint, uint> currentChestIds =
+                new Dictionary<uint, uint>();
+
+            Dictionary<uint, uint> currentTables =
+                new Dictionary<uint, uint>();
+
+            Dictionary<uint, uint> currentChestDataRefs =
+                new Dictionary<uint, uint>();
+
+            Dictionary<uint, uint> currentChestTypes =
+                new Dictionary<uint, uint>();
+
+            Dictionary<uint, string> currentNames =
+                new Dictionary<uint, string>();
+
+            if (!TryReadRuntimeChests(
+                gameContext,
+                currentChests,
+                currentChestIds,
+                currentTables,
+                currentChestDataRefs,
+                currentChestTypes,
+                currentNames))
+            {
+                return;
+            }
+
+            // First valid read is baseline only, so attaching LiveSplit while
+            // chests already exist does not report them as newly spawned.
+            if (!_runtimeChestBaselineReady)
+            {
+                ReplaceRuntimeChestBaseline(currentChests);
+                _runtimeChestBaselineReady = true;
+                return;
+            }
+
+            foreach (
+                KeyValuePair<uint, RuntimeChestSnapshot> pair
+                in currentChests)
+            {
+                uint entity = pair.Key;
+                RuntimeChestSnapshot current = pair.Value;
+
+                RuntimeChestSnapshot previous;
+                bool existedPreviously =
+                    _knownRuntimeChests.TryGetValue(
+                        entity,
+                        out previous);
+
+                uint chestIdAddress = 0;
+                currentChestIds.TryGetValue(
+                    entity,
+                    out chestIdAddress);
+
+                uint currentTableAddress = 0;
+                currentTables.TryGetValue(
+                    entity,
+                    out currentTableAddress);
+
+                uint chestDataRefAddress = 0;
+                currentChestDataRefs.TryGetValue(
+                    entity,
+                    out chestDataRefAddress);
+
+                uint chestType = 0;
+                currentChestTypes.TryGetValue(
+                    entity,
+                    out chestType);
+
+                string currentName = string.Empty;
+                currentNames.TryGetValue(
+                    entity,
+                    out currentName);
+
+                if (!existedPreviously)
+                {
+                    NewlyFoundRuntimeChests.Add(
+                        new RuntimeChestEvent(
+                            entity,
+                            current.BehaviourAddress,
+                            chestIdAddress,
+                            currentTableAddress,
+                            chestDataRefAddress,
+                            chestType,
+                            currentName,
+                            current.Guid));
+
+                    // If a chest appears already opened between LiveSplit
+                    // update frames, still report the opening.
+                    if (current.Opened)
+                    {
+                        NewlyOpenedRuntimeChests.Add(
+                            new RuntimeChestEvent(
+                                entity,
+                                current.BehaviourAddress,
+                                chestIdAddress,
+                                currentTableAddress,
+                                chestDataRefAddress,
+                                chestType,
+                                currentName,
+                                current.Guid));
+                    }
+
+                    continue;
+                }
+
+                if (!previous.Opened && current.Opened)
+                {
+                    NewlyOpenedRuntimeChests.Add(
+                        new RuntimeChestEvent(
+                            entity,
+                            current.BehaviourAddress,
+                            chestIdAddress,
+                            currentTableAddress,
+                            chestDataRefAddress,
+                            chestType,
+                            currentName,
+                            current.Guid));
+                }
+            }
+
+            ReplaceRuntimeChestBaseline(currentChests);
+        }
+
+        private bool TryReadRuntimeChests(
+            uint gameContext,
+            Dictionary<uint, RuntimeChestSnapshot> chests,
+            Dictionary<uint, uint> chestIds,
+            Dictionary<uint, uint> currentTables,
+            Dictionary<uint, uint> chestDataRefs,
+            Dictionary<uint, uint> chestTypes,
+            Dictionary<uint, string> currentNames)
+        {
+            uint entities =
+                _memory.ReadPointer(
+                    gameContext + 0x28);
+
+            if (entities == 0)
+            {
+                return false;
+            }
+
+            uint slots =
+                _memory.ReadPointer(
+                    entities + 0x0C);
+
+            int lastIndex =
+                (int)_memory.ReadUInt32(
+                    new System.IntPtr(
+                        entities + 0x1C));
+
+            if (
+                slots == 0 ||
+                lastIndex < 0 ||
+                lastIndex > 10000)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < lastIndex; i++)
+            {
+                uint entity =
+                    _memory.ReadPointer(
+                        slots
+                        + 0x10u
+                        + (uint)(i * 0x0C)
+                        + 0x08u);
+
+                if (entity == 0)
+                {
+                    continue;
+                }
+
+                uint components =
+                    _memory.ReadPointer(
+                        entity + 0x24);
+
+                if (components == 0)
+                {
+                    continue;
+                }
+
+                int componentCount =
+                    (int)_memory.ReadUInt32(
+                        new System.IntPtr(
+                            components + 0x0C));
+
+                if (componentCount <= 50)
+                {
+                    continue;
+                }
+
+                uint chestComponent =
+                    _memory.ReadPointer(
+                        components
+                        + 0x10u
+                        + (uint)(50 * 4));
+
+                if (chestComponent == 0)
+                {
+                    continue;
+                }
+
+                // ChestComponent.value = +0x08
+                uint chestBehaviour =
+                    _memory.ReadPointer(
+                        chestComponent + 0x08);
+
+                if (chestBehaviour == 0)
+                {
+                    continue;
+                }
+
+                // ChestBehaviour.currentTable = +0x68
+                uint currentTable =
+                    _memory.ReadPointer(
+                        chestBehaviour + 0x68);
+
+                // ChestBehaviour.currentName = +0x6C
+                uint currentNameString =
+                    _memory.ReadPointer(
+                        chestBehaviour + 0x6C);
+
+                string currentName = string.Empty;
+
+                if (currentNameString != 0)
+                {
+                    currentName =
+                        _memory.ReadMonoString(
+                            currentNameString) ??
+                        string.Empty;
+                }
+
+                // ChestBehaviour.chestID = +0x70
+                uint chestId =
+                    _memory.ReadPointer(
+                        chestBehaviour + 0x70);
+
+                // ChestBehaviour.chestDataRef = +0x98
+                uint chestDataRef =
+                    _memory.ReadPointer(
+                        chestBehaviour + 0x98);
+
+                // ChestBehaviour.chestType = +0xBC
+                uint chestType =
+                    _memory.ReadUInt32(
+                        new System.IntPtr(
+                            chestBehaviour + 0xBC));
+
+                string guid = string.Empty;
+
+                if (chestId != 0)
+                {
+                    // GenericDatabaseEntry.Guid = +0x0C
+                    uint guidString =
+                        _memory.ReadPointer(
+                            chestId + 0x0C);
+
+                    if (guidString != 0)
+                    {
+                        guid =
+                            _memory.ReadMonoString(
+                                guidString) ??
+                            string.Empty;
+                    }
+                }
+
+                // ChestBehaviour.opened = +0xA4
+                byte[] openedBytes =
+                    _memory.ReadBytes(
+                        new System.IntPtr(
+                            chestBehaviour + 0xA4),
+                        1);
+
+                if (
+                    openedBytes == null ||
+                    openedBytes.Length != 1)
+                {
+                    continue;
+                }
+
+                bool opened =
+                    openedBytes[0] != 0;
+
+                chests[entity] =
+                    new RuntimeChestSnapshot(
+                        chestBehaviour,
+                        guid,
+                        opened);
+
+                chestIds[entity] =
+                    chestId;
+
+                currentTables[entity] =
+                    currentTable;
+
+                chestDataRefs[entity] =
+                    chestDataRef;
+
+                chestTypes[entity] =
+                    chestType;
+
+                currentNames[entity] =
+                    currentName;
+            }
+
+            return true;
+        }
+
+        private void ReplaceRuntimeChestBaseline(
+            Dictionary<uint, RuntimeChestSnapshot> currentChests)
+        {
+            _knownRuntimeChests.Clear();
+
+            foreach (
+                KeyValuePair<uint, RuntimeChestSnapshot> pair
+                in currentChests)
+            {
+                _knownRuntimeChests[pair.Key] =
+                    pair.Value;
+            }
+        }
+
+        private void ResetRuntimeChestDiagnostic()
+        {
+            _knownRuntimeChests.Clear();
+            NewlyFoundRuntimeChests.Clear();
+            NewlyOpenedRuntimeChests.Clear();
+            _runtimeChestBaselineReady = false;
+        }
+
+        // ============================================================
         // BOSS DEATH DETECTION
         //
         // GameComponentsLookup:
@@ -260,6 +708,10 @@ namespace LiveSplit.CatQuest3
             if (_contextsStaticStorage != contextsStaticStorage)
             {
                 ResetBossDeathBaseline();
+                ResetRuntimeChestDiagnostic();
+
+                ActiveSceneName =
+                    null;
             }
 
             _contextsStaticStorage =
@@ -1133,6 +1585,34 @@ namespace LiveSplit.CatQuest3
                 ReadSceneName(
                     targetSceneData
                 );
+
+            // Once the scene transition has started, the target is the scene
+            // that subsequent gameplay events belong to. Keep that value
+            // after the ChangeSceneCommand disappears.
+            if (
+                SceneChangeProcessStarted &&
+                !string.IsNullOrEmpty(
+                    TargetSceneName
+                )
+            )
+            {
+                ActiveSceneName =
+                    TargetSceneName;
+            }
+            else if (
+                string.IsNullOrEmpty(
+                    ActiveSceneName
+                ) &&
+                !string.IsNullOrEmpty(
+                    CurrentSceneName
+                )
+            )
+            {
+                // Useful when LiveSplit attaches while a transition command
+                // already exists but has not started processing yet.
+                ActiveSceneName =
+                    CurrentSceneName;
+            }
         }
 
         private string ReadSceneName(
