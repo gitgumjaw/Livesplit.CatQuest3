@@ -12,6 +12,15 @@ namespace LiveSplit.CatQuest3
         private uint _lastSaveGameData;
         private bool _baselineReady;
 
+        private readonly HashSet<string> _knownKeyItemGuids =
+            new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+
+        public List<string> NewlyObtainedKeyItemGuids
+        {
+            get;
+            private set;
+        } = new List<string>();
+
         // ============================================================
         // CHEST DETECTION
         // ============================================================
@@ -29,23 +38,8 @@ namespace LiveSplit.CatQuest3
         } = new List<string>();
 
         // ============================================================
-        // SHIP KEY
+        // KEY ITEMS
         // ============================================================
-
-        public bool HasShipKey { get; private set; }
-
-        public bool HadShipKey { get; private set; }
-
-        public bool ShipKeyObtained
-        {
-            get
-            {
-                return
-                    _baselineReady &&
-                    HasShipKey &&
-                    !HadShipKey;
-            }
-        }
 
         // ============================================================
         // SCENE CHANGE
@@ -254,6 +248,9 @@ namespace LiveSplit.CatQuest3
             _lastSaveGameData =
                 0;
 
+            _knownKeyItemGuids.Clear();
+            NewlyObtainedKeyItemGuids.Clear();
+
             ResetChestBaseline();
         }
 
@@ -275,7 +272,7 @@ namespace LiveSplit.CatQuest3
 
         public void Update()
         {
-            UpdateShipKeyState();
+            UpdateKeyItemState();
 
             UpdateSceneChangeState();
 
@@ -285,67 +282,102 @@ namespace LiveSplit.CatQuest3
         }
 
         // ============================================================
-        // SHIP KEY
+        // KEY ITEMS
         // ============================================================
 
-        private void UpdateShipKeyState()
+        private void UpdateKeyItemState()
         {
-            uint saveGameData =
-                GetSaveGameData();
+            NewlyObtainedKeyItemGuids.Clear();
 
+            uint saveGameData = GetSaveGameData();
             if (saveGameData == 0)
             {
-                _baselineReady =
-                    false;
-
-                _lastSaveGameData =
-                    0;
-
-                HasShipKey =
-                    false;
-
-                HadShipKey =
-                    false;
-
+                _baselineReady = false;
+                _lastSaveGameData = 0;
+                _knownKeyItemGuids.Clear();
                 return;
             }
 
-            uint obtainedKeys =
-                GetObtainedKeys(
-                    saveGameData
-                );
-
-            bool currentHasShipKey =
-                _memory.HasShipKey(
-                    obtainedKeys
-                );
-
-            if (
-                !_baselineReady ||
-                saveGameData !=
-                    _lastSaveGameData
-            )
+            uint obtainedKeys = GetObtainedKeys(saveGameData);
+            HashSet<string> currentGuids;
+            if (!TryReadKeyItemGuids(obtainedKeys, out currentGuids))
             {
-                HasShipKey =
-                    currentHasShipKey;
-
-                HadShipKey =
-                    currentHasShipKey;
-
-                _lastSaveGameData =
-                    saveGameData;
-
-                _baselineReady =
-                    true;
-
                 return;
             }
 
-            HadShipKey =
-                HasShipKey;
+            if (!_baselineReady || saveGameData != _lastSaveGameData)
+            {
+                SetKeyItemBaseline(saveGameData, currentGuids);
+                return;
+            }
 
-            HasShipKey =
-                currentHasShipKey;
+            // A smaller set means the save/key state changed unexpectedly.
+            // Re-baseline rather than reporting old items as newly obtained.
+            if (currentGuids.Count < _knownKeyItemGuids.Count)
+            {
+                SetKeyItemBaseline(saveGameData, currentGuids);
+                return;
+            }
+
+            foreach (string guid in currentGuids)
+            {
+                if (!_knownKeyItemGuids.Contains(guid))
+                {
+                    NewlyObtainedKeyItemGuids.Add(guid);
+                }
+            }
+
+            _knownKeyItemGuids.Clear();
+            foreach (string guid in currentGuids)
+            {
+                _knownKeyItemGuids.Add(guid);
+            }
+        }
+
+        private bool TryReadKeyItemGuids(uint obtainedKeys, out HashSet<string> guids)
+        {
+            guids = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+            if (obtainedKeys == 0) return false;
+
+            int count = (int)_memory.ReadUInt32(new System.IntPtr(obtainedKeys + 0x18));
+            int lastIndex = (int)_memory.ReadUInt32(new System.IntPtr(obtainedKeys + 0x1C));
+            if (count < 0 || lastIndex < 0 || count > 10000 || lastIndex > 10000) return false;
+            if (lastIndex == 0) return true;
+
+            uint slots = _memory.ReadPointer(obtainedKeys + 0x0C);
+            if (slots == 0) return false;
+
+            int validSlots = 0;
+            for (int i = 0; i < lastIndex; i++)
+            {
+                uint slot = slots + 0x10u + (uint)(i * 0x0C);
+                int hashCode = unchecked((int)_memory.ReadUInt32(new System.IntPtr(slot)));
+                if (hashCode < 0) continue;
+
+                uint keyData = _memory.ReadPointer(slot + 0x08);
+                if (keyData == 0) continue;
+
+                uint guidString = _memory.ReadPointer(keyData + 0x0C);
+                if (guidString == 0) continue;
+
+                string guid = _memory.ReadMonoString(guidString);
+                if (string.IsNullOrEmpty(guid)) continue;
+
+                guids.Add(guid);
+                validSlots++;
+            }
+
+            if (count > 0 && validSlots == 0) return false;
+            return true;
+        }
+
+        private void SetKeyItemBaseline(uint saveGameData, HashSet<string> guids)
+        {
+            _knownKeyItemGuids.Clear();
+            foreach (string guid in guids) _knownKeyItemGuids.Add(guid);
+            NewlyObtainedKeyItemGuids.Clear();
+            _lastSaveGameData = saveGameData;
+            _baselineReady = true;
         }
 
         private uint GetSaveGameData()

@@ -894,16 +894,18 @@ namespace LiveSplit.CatQuest3
                 type == SplitTriggerType.KeyQuestItem
             )
             {
-                // This is intentionally only the one item whose
-                // memory detector is already proven. More progression
-                // and sidequest items can be added here later even if
-                // they require different detector implementations.
-                comboBox.Items.Add(
-                    new SpecificTriggerOption(
-                        "ShipKey",
-                        "Ship Key"
-                    )
-                );
+                foreach (
+                    KeyItemCatalog.KeyItemEntry keyItem
+                    in KeyItemCatalog.Entries
+                )
+                {
+                    comboBox.Items.Add(
+                        new SpecificTriggerOption(
+                            keyItem.Value,
+                            keyItem.DisplayName
+                        )
+                    );
+                }
             }
             else if (
                 type == SplitTriggerType.Equipment

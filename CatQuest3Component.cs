@@ -379,7 +379,7 @@ namespace LiveSplit.CatQuest3
             // EXISTING SPLITS
             // --------------------------------------------------------
 
-            CheckConfiguredShipKeySplit();
+            CheckConfiguredKeyItemSplit();
 
             // --------------------------------------------------------
             // SAVE HISTORY
@@ -893,44 +893,53 @@ namespace LiveSplit.CatQuest3
         }
 
         // ============================================================
-        // SHIP KEY SPLIT
+        // KEY ITEM SPLIT
         // ============================================================
 
-        private void CheckConfiguredShipKeySplit()
+        private void CheckConfiguredKeyItemSplit()
         {
-            if (
-                !_gameState.ShipKeyObtained
-            )
+            if (_gameState.NewlyObtainedKeyItemGuids == null ||
+                _gameState.NewlyObtainedKeyItemGuids.Count == 0)
             {
                 return;
             }
 
-            Trace.WriteLine(
-                "SHIP KEY OBTAINED"
-            );
-
-            SplitTriggerSelection trigger =
-                GetCurrentSplitTrigger();
-
-            if (
-                trigger.Type !=
-                    SplitTriggerType.KeyQuestItem ||
-                !string.Equals(
-                    trigger.Value,
-                    "ShipKey",
-                    StringComparison.OrdinalIgnoreCase
-                )
-            )
+            SplitTriggerSelection trigger = GetCurrentSplitTrigger();
+            if (trigger.Type != SplitTriggerType.KeyQuestItem ||
+                string.IsNullOrEmpty(trigger.Value))
             {
                 return;
             }
 
-            Trace.WriteLine(
-                "SPLIT TRIGGER | SHIP KEY | SPLIT " +
-                (_state.CurrentSplitIndex + 1).ToString()
-            );
+            KeyItemCatalog.KeyItemEntry configuredItem;
+            if (!KeyItemCatalog.TryGetByValue(trigger.Value, out configuredItem))
+            {
+                return;
+            }
 
-            _timerModel.Split();
+            foreach (string guid in _gameState.NewlyObtainedKeyItemGuids)
+            {
+                Trace.WriteLine(
+                    "KEY ITEM OBTAINED | " +
+                    KeyItemCatalog.GetDisplayNameByGuid(guid) +
+                    " | GUID: " + guid
+                );
+
+                if (!string.Equals(guid, configuredItem.Guid, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                Trace.WriteLine(
+                    "SPLIT TRIGGER | KEY ITEM | " +
+                    configuredItem.DisplayName +
+                    " | SPLIT " +
+                    (_state.CurrentSplitIndex + 1).ToString()
+                );
+
+                _timerModel.Split();
+                return;
+            }
         }
 
         // ============================================================
