@@ -22,6 +22,22 @@ namespace LiveSplit.CatQuest3
         } = new List<string>();
 
         // ============================================================
+        // EQUIPMENT GET DIAGNOSTIC
+        // ============================================================
+
+        private uint _lastEquipmentSaveGameData;
+        private bool _equipmentBaselineReady;
+
+        private readonly HashSet<string> _knownEquipmentGuids =
+            new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+
+        public List<string> NewlyObtainedEquipmentGuids
+        {
+            get;
+            private set;
+        } = new List<string>();
+
+        // ============================================================
         // CHEST DETECTION
         // ============================================================
 
@@ -699,6 +715,15 @@ namespace LiveSplit.CatQuest3
             _knownKeyItemGuids.Clear();
             NewlyObtainedKeyItemGuids.Clear();
 
+            _equipmentBaselineReady =
+                false;
+
+            _lastEquipmentSaveGameData =
+                0;
+
+            _knownEquipmentGuids.Clear();
+            NewlyObtainedEquipmentGuids.Clear();
+
             ResetChestBaseline();
         }
 
@@ -725,6 +750,8 @@ namespace LiveSplit.CatQuest3
         public void Update()
         {
             UpdateKeyItemState();
+
+            UpdateEquipmentState();
 
             UpdateSceneChangeState();
 
@@ -830,6 +857,265 @@ namespace LiveSplit.CatQuest3
             NewlyObtainedKeyItemGuids.Clear();
             _lastSaveGameData = saveGameData;
             _baselineReady = true;
+        }
+
+        // ============================================================
+        // EQUIPMENT GET DIAGNOSTIC
+        //
+        // SaveGameData
+        // +0x1C -> savedEquipmentData
+        //
+        // SaveGameEquipmentData
+        // +0x08 -> equipmentSaveData (Dictionary<string, int>)
+        //
+        // Dictionary<string, int>
+        // +0x0C -> _entries
+        // +0x20 -> _count
+        // +0x28 -> _freeCount
+        //
+        // Entry<string, int> is a value type. Mono Dissector displays
+        // boxed field offsets +0x08/+0x0C/+0x10/+0x14, so inside the
+        // array the actual 16-byte struct layout is:
+        //
+        // +0x00 -> hashCode
+        // +0x04 -> next
+        // +0x08 -> key (Mono string pointer)
+        // +0x0C -> value (equipment level)
+        // ============================================================
+
+        private void UpdateEquipmentState()
+        {
+            NewlyObtainedEquipmentGuids.Clear();
+
+            uint saveGameData =
+                GetSaveGameData();
+
+            if (saveGameData == 0)
+            {
+                _equipmentBaselineReady =
+                    false;
+
+                _lastEquipmentSaveGameData =
+                    0;
+
+                _knownEquipmentGuids.Clear();
+                return;
+            }
+
+            uint equipmentDictionary =
+                GetEquipmentDictionary(
+                    saveGameData
+                );
+
+            HashSet<string> currentGuids;
+
+            if (
+                !TryReadEquipmentGuids(
+                    equipmentDictionary,
+                    out currentGuids
+                )
+            )
+            {
+                return;
+            }
+
+            if (
+                !_equipmentBaselineReady ||
+                saveGameData !=
+                    _lastEquipmentSaveGameData
+            )
+            {
+                SetEquipmentBaseline(
+                    saveGameData,
+                    currentGuids
+                );
+
+                return;
+            }
+
+            // A smaller set means the active save/equipment state changed
+            // unexpectedly. Re-baseline instead of reporting old equipment
+            // as newly obtained.
+            if (
+                currentGuids.Count <
+                    _knownEquipmentGuids.Count
+            )
+            {
+                SetEquipmentBaseline(
+                    saveGameData,
+                    currentGuids
+                );
+
+                return;
+            }
+
+            foreach (string guid in currentGuids)
+            {
+                if (!_knownEquipmentGuids.Contains(guid))
+                {
+                    NewlyObtainedEquipmentGuids.Add(
+                        guid
+                    );
+                }
+            }
+
+            _knownEquipmentGuids.Clear();
+
+            foreach (string guid in currentGuids)
+            {
+                _knownEquipmentGuids.Add(guid);
+            }
+        }
+
+        private uint GetEquipmentDictionary(
+            uint saveGameData)
+        {
+            uint saveGameEquipmentData =
+                _memory.ReadPointer(
+                    saveGameData + 0x1C
+                );
+
+            if (saveGameEquipmentData == 0)
+            {
+                return 0;
+            }
+
+            return _memory.ReadPointer(
+                saveGameEquipmentData + 0x08
+            );
+        }
+
+        private bool TryReadEquipmentGuids(
+            uint equipmentDictionary,
+            out HashSet<string> guids)
+        {
+            guids =
+                new HashSet<string>(
+                    System.StringComparer.OrdinalIgnoreCase
+                );
+
+            if (equipmentDictionary == 0)
+            {
+                return false;
+            }
+
+            int count =
+                unchecked((int)_memory.ReadUInt32(
+                    new System.IntPtr(
+                        equipmentDictionary + 0x20
+                    )
+                ));
+
+            int freeCount =
+                unchecked((int)_memory.ReadUInt32(
+                    new System.IntPtr(
+                        equipmentDictionary + 0x28
+                    )
+                ));
+
+            if (
+                count < 0 ||
+                count > 10000 ||
+                freeCount < 0 ||
+                freeCount > count
+            )
+            {
+                return false;
+            }
+
+            // A newly-created empty Dictionary can legitimately have no
+            // entries array yet.
+            if (count == 0)
+            {
+                return true;
+            }
+
+            uint entries =
+                _memory.ReadPointer(
+                    equipmentDictionary + 0x0C
+                );
+
+            if (entries == 0)
+            {
+                return false;
+            }
+
+            int validEntries = 0;
+
+            for (int i = 0; i < count; i++)
+            {
+                uint entry =
+                    entries
+                    + 0x10u
+                    + (uint)(i * 0x10);
+
+                int hashCode =
+                    unchecked((int)_memory.ReadUInt32(
+                        new System.IntPtr(entry)
+                    ));
+
+                // Removed/free Dictionary entries have a negative hash.
+                if (hashCode < 0)
+                {
+                    continue;
+                }
+
+                uint keyString =
+                    _memory.ReadPointer(
+                        entry + 0x08
+                    );
+
+                if (keyString == 0)
+                {
+                    continue;
+                }
+
+                string guid =
+                    _memory.ReadMonoString(
+                        keyString
+                    );
+
+                if (string.IsNullOrEmpty(guid))
+                {
+                    continue;
+                }
+
+                guids.Add(guid);
+                validEntries++;
+            }
+
+            int expectedActiveEntries =
+                count - freeCount;
+
+            if (
+                expectedActiveEntries > 0 &&
+                validEntries == 0
+            )
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private void SetEquipmentBaseline(
+            uint saveGameData,
+            HashSet<string> guids)
+        {
+            _knownEquipmentGuids.Clear();
+
+            foreach (string guid in guids)
+            {
+                _knownEquipmentGuids.Add(guid);
+            }
+
+            NewlyObtainedEquipmentGuids.Clear();
+
+            _lastEquipmentSaveGameData =
+                saveGameData;
+
+            _equipmentBaselineReady =
+                true;
         }
 
         private uint GetSaveGameData()

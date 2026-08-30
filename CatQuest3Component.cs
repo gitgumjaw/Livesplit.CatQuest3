@@ -353,6 +353,8 @@ namespace LiveSplit.CatQuest3
 
             _gameState.Update();
 
+            CheckEquipmentGetDiagnostic();
+
             UpdateHaltNavigationState();
 
             // --------------------------------------------------------
@@ -922,6 +924,32 @@ namespace LiveSplit.CatQuest3
             return _settings.GetSplitTrigger(
                 splitIndex
             );
+        }
+
+        // ============================================================
+        // EQUIPMENT GET DIAGNOSTIC
+        // ============================================================
+
+        private void CheckEquipmentGetDiagnostic()
+        {
+            if (
+                _gameState.NewlyObtainedEquipmentGuids == null ||
+                _gameState.NewlyObtainedEquipmentGuids.Count == 0
+            )
+            {
+                return;
+            }
+
+            foreach (
+                string guid
+                in _gameState.NewlyObtainedEquipmentGuids
+            )
+            {
+                Trace.WriteLine(
+                    "EQUIPMENT OBTAINED | GUID: " +
+                    guid
+                );
+            }
         }
 
         // ============================================================
