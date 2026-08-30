@@ -152,17 +152,17 @@ namespace LiveSplit.CatQuest3
             ),
             new ChestEntry(
                 "650a3b3f9dc251d418a1210095932574",
-                "8 Bit Dungeon — 6F Boss Room Chest",
+                "Eight-Bit Dungeon — 6F Boss Room Chest",
                 "ChestID_Castle_8BitDungeon_ChestTrigger_01"
             ),
             new ChestEntry(
                 "934c21a2d35eb7f4288f21e7a3541757",
-                "8 Bit Dungeon — 4F Painting Reward Chest",
+                "Eight-Bit Dungeon — 4F Painting Reward Chest",
                 "ChestID_Castle_8BitDungeon_ChestTrigger_02"
             ),
             new ChestEntry(
                 "a5a38691eb6971f49836b0a3a7110eee",
-                "8 Bit Dungeon — 4F Jailed Chest",
+                "Eight-Bit Dungeon — 4F Jailed Chest",
                 "ChestID_Castle_8BitDungeon_ChestTrigger_03"
             ),
             new ChestEntry(

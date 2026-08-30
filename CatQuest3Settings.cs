@@ -14,8 +14,10 @@ namespace LiveSplit.CatQuest3
         private readonly ComboBox _startTriggerComboBox;
 
         private readonly Label _splitTriggersLabel;
+        private readonly Label _splitTriggersHelperLabel;
         private readonly Panel _splitScrollPanel;
         private readonly TableLayoutPanel _splitTable;
+        private readonly LinkLabel _assistanceLinkLabel;
 
         private readonly Dictionary<int, SplitTriggerSelection>
             _splitTriggers =
@@ -31,6 +33,12 @@ namespace LiveSplit.CatQuest3
 
         private readonly List<string> _splitNamesSnapshot =
             new List<string>();
+
+        // Built once per settings control instead of recreating the same
+        // SpecificTriggerOption objects for every split row.
+        private readonly Dictionary<SplitTriggerType, List<SpecificTriggerOption>>
+            _specificOptionsCache =
+                new Dictionary<SplitTriggerType, List<SpecificTriggerOption>>();
 
         public StartTriggerMode StartTrigger
         {
@@ -96,7 +104,7 @@ namespace LiveSplit.CatQuest3
                 new Label();
 
             _startTriggerLabel.Text =
-                "Start Trigger:";
+                "Timer Start Trigger:";
 
             _startTriggerLabel.AutoSize =
                 true;
@@ -114,7 +122,7 @@ namespace LiveSplit.CatQuest3
                 ComboBoxStyle.DropDownList;
 
             _startTriggerComboBox.Left =
-                100;
+                125;
 
             _startTriggerComboBox.Top =
                 10;
@@ -125,7 +133,14 @@ namespace LiveSplit.CatQuest3
             _startTriggerComboBox.Items.Add(
                 new StartTriggerOption(
                     StartTriggerMode.Manual,
-                    "Manual Start"
+                    "None (Manual Start)"
+                )
+            );
+
+            _startTriggerComboBox.Items.Add(
+                new StartTriggerOption(
+                    StartTriggerMode.Any,
+                    "Any Start"
                 )
             );
 
@@ -146,14 +161,7 @@ namespace LiveSplit.CatQuest3
             _startTriggerComboBox.Items.Add(
                 new StartTriggerOption(
                     StartTriggerMode.Continue,
-                    "Continue Start"
-                )
-            );
-
-            _startTriggerComboBox.Items.Add(
-                new StartTriggerOption(
-                    StartTriggerMode.Any,
-                    "Any Start"
+                    "Continue/Load Start"
                 )
             );
 
@@ -175,6 +183,27 @@ namespace LiveSplit.CatQuest3
             _splitTriggersLabel.Top =
                 52;
 
+            _splitTriggersHelperLabel =
+                new Label();
+
+            _splitTriggersHelperLabel.Text =
+                "Add/edit splits normally and the list below will be populated accordingly.";
+
+            _splitTriggersHelperLabel.AutoSize =
+                true;
+
+            _splitTriggersHelperLabel.Font =
+                new Font(
+                    _splitTriggersHelperLabel.Font.FontFamily,
+                    8.0f
+                );
+
+            _splitTriggersHelperLabel.Left =
+                10;
+
+            _splitTriggersHelperLabel.Top =
+                70;
+
             _splitScrollPanel =
                 new Panel();
 
@@ -182,13 +211,13 @@ namespace LiveSplit.CatQuest3
                 10;
 
             _splitScrollPanel.Top =
-                75;
+                90;
 
             _splitScrollPanel.Width =
                 455;
 
             _splitScrollPanel.Height =
-                340;
+                305;
 
             _splitScrollPanel.AutoScroll =
                 true;
@@ -241,6 +270,66 @@ namespace LiveSplit.CatQuest3
                 _splitTable
             );
 
+            _assistanceLinkLabel =
+                new LinkLabel();
+
+            _assistanceLinkLabel.Text =
+                "For autosplitter assistance, contact Gumjaw on the Cat Quest Speedrun Discord.";
+
+            _assistanceLinkLabel.AutoSize =
+                true;
+
+            _assistanceLinkLabel.Font =
+                new Font(
+                    _assistanceLinkLabel.Font.FontFamily,
+                    7.5f
+                );
+
+            _assistanceLinkLabel.Left =
+                10;
+
+            _assistanceLinkLabel.Top =
+                402;
+
+            const string discordLinkText =
+                "Cat Quest Speedrun Discord";
+
+            int discordLinkStart =
+                _assistanceLinkLabel.Text.IndexOf(
+                    discordLinkText,
+                    StringComparison.Ordinal
+                );
+
+            if (
+                discordLinkStart >= 0
+            )
+            {
+                _assistanceLinkLabel.Links.Add(
+                    discordLinkStart,
+                    discordLinkText.Length,
+                    "https://discord.gg/HwEkSQU5wd"
+                );
+            }
+
+            _assistanceLinkLabel.LinkClicked +=
+                delegate (
+                    object sender,
+                    LinkLabelLinkClickedEventArgs e
+                )
+                {
+                    if (
+                        e.Link.LinkData is string url &&
+                        !string.IsNullOrEmpty(
+                            url
+                        )
+                    )
+                    {
+                        System.Diagnostics.Process.Start(
+                            url
+                        );
+                    }
+                };
+
             Controls.Add(
                 _startTriggerLabel
             );
@@ -254,8 +343,18 @@ namespace LiveSplit.CatQuest3
             );
 
             Controls.Add(
+                _splitTriggersHelperLabel
+            );
+
+            Controls.Add(
                 _splitScrollPanel
             );
+
+            Controls.Add(
+                _assistanceLinkLabel
+            );
+
+            BuildSpecificOptionsCache();
 
             RefreshSplitRows();
         }
@@ -830,6 +929,148 @@ namespace LiveSplit.CatQuest3
         // SPECIFIC-TRIGGER DROPDOWN
         // ============================================================
 
+        private void BuildSpecificOptionsCache()
+        {
+            List<SpecificTriggerOption> chestOptions =
+                new List<SpecificTriggerOption>();
+
+            foreach (
+                ChestCatalog.ChestEntry chest
+                in ChestCatalog.Entries
+            )
+            {
+                chestOptions.Add(
+                    new SpecificTriggerOption(
+                        chest.Value,
+                        chest.DisplayName
+                    )
+                );
+            }
+
+            SortSpecificOptions(
+                chestOptions
+            );
+
+            _specificOptionsCache[SplitTriggerType.Chest] =
+                chestOptions;
+
+            List<SpecificTriggerOption> locationOptions =
+                new List<SpecificTriggerOption>();
+
+            foreach (
+                LocationCatalog.LocationEntry location
+                in LocationCatalog.Entries
+            )
+            {
+                locationOptions.Add(
+                    new SpecificTriggerOption(
+                        location.Value,
+                        location.DisplayName
+                    )
+                );
+            }
+
+            SortSpecificOptions(
+                locationOptions
+            );
+
+            // Enter and Exit deliberately share the same immutable option
+            // objects; the ComboBoxes only read Value/DisplayName from them.
+            _specificOptionsCache[SplitTriggerType.Enter] =
+                locationOptions;
+
+            _specificOptionsCache[SplitTriggerType.Exit] =
+                locationOptions;
+
+            List<SpecificTriggerOption> keyItemOptions =
+                new List<SpecificTriggerOption>();
+
+            foreach (
+                KeyItemCatalog.KeyItemEntry keyItem
+                in KeyItemCatalog.Entries
+            )
+            {
+                keyItemOptions.Add(
+                    new SpecificTriggerOption(
+                        keyItem.Value,
+                        keyItem.DisplayName
+                    )
+                );
+            }
+
+            SortSpecificOptions(
+                keyItemOptions
+            );
+
+            _specificOptionsCache[SplitTriggerType.KeyQuestItem] =
+                keyItemOptions;
+
+            List<SpecificTriggerOption> equipmentOptions =
+                new List<SpecificTriggerOption>();
+
+            foreach (
+                EquipmentCatalog.EquipmentEntry equipment
+                in EquipmentCatalog.Entries
+            )
+            {
+                equipmentOptions.Add(
+                    new SpecificTriggerOption(
+                        equipment.Value,
+                        equipment.DisplayName
+                    )
+                );
+            }
+
+            SortSpecificOptions(
+                equipmentOptions
+            );
+
+            _specificOptionsCache[SplitTriggerType.Equipment] =
+                equipmentOptions;
+
+            List<SpecificTriggerOption> bossOptions =
+                new List<SpecificTriggerOption>();
+
+            foreach (
+                BossCatalog.BossEntry boss
+                in BossCatalog.Entries
+            )
+            {
+                bossOptions.Add(
+                    new SpecificTriggerOption(
+                        boss.Value,
+                        boss.DisplayName
+                    )
+                );
+            }
+
+            SortSpecificOptions(
+                bossOptions
+            );
+
+            _specificOptionsCache[SplitTriggerType.Boss] =
+                bossOptions;
+        }
+
+        private static void SortSpecificOptions(
+            List<SpecificTriggerOption> options
+        )
+        {
+            options.Sort(
+                delegate (
+                    SpecificTriggerOption left,
+                    SpecificTriggerOption right
+                )
+                {
+                    return string.Compare(
+                        left.ToString(),
+                        right.ToString(),
+                        StringComparison.CurrentCultureIgnoreCase
+                    );
+                }
+            );
+        }
+
         private void PopulateSpecificOptions(
             int splitIndex,
             SplitTriggerType type,
@@ -850,105 +1091,43 @@ namespace LiveSplit.CatQuest3
 
             comboBox.BeginUpdate();
 
-            comboBox.Items.Clear();
+            try
+            {
+                comboBox.Items.Clear();
 
-            comboBox.Enabled =
-                type != SplitTriggerType.None;
+                comboBox.Enabled =
+                    type != SplitTriggerType.None;
 
-            if (
-                type == SplitTriggerType.Chest
-            )
-            {
-                foreach (
-                    ChestCatalog.ChestEntry chest
-                    in ChestCatalog.Entries
+                if (
+                    type != SplitTriggerType.None
                 )
                 {
-                    comboBox.Items.Add(
-                        new SpecificTriggerOption(
-                            chest.Value,
-                            chest.DisplayName
-                        )
-                    );
-                }
-            }
-            else if (
-                type == SplitTriggerType.Enter ||
-                type == SplitTriggerType.Exit
-            )
-            {
-                foreach (
-                    LocationCatalog.LocationEntry location
-                    in LocationCatalog.Entries
-                )
-                {
-                    comboBox.Items.Add(
-                        new SpecificTriggerOption(
-                            location.Value,
-                            location.DisplayName
-                        )
-                    );
-                }
-            }
-            else if (
-                type == SplitTriggerType.KeyQuestItem
-            )
-            {
-                foreach (
-                    KeyItemCatalog.KeyItemEntry keyItem
-                    in KeyItemCatalog.Entries
-                )
-                {
-                    comboBox.Items.Add(
-                        new SpecificTriggerOption(
-                            keyItem.Value,
-                            keyItem.DisplayName
-                        )
-                    );
-                }
-            }
-            else if (
-                type == SplitTriggerType.Equipment
-            )
-            {
-                foreach (
-                    EquipmentCatalog.EquipmentEntry equipment
-                    in EquipmentCatalog.Entries
-                )
-                {
-                    comboBox.Items.Add(
-                        new SpecificTriggerOption(
-                            equipment.Value,
-                            equipment.DisplayName
-                        )
-                    );
-                }
-            }
-            else if (
-                type == SplitTriggerType.Boss
-            )
-            {
-                foreach (
-                    BossCatalog.BossEntry boss
-                    in BossCatalog.Entries
-                )
-                {
-                    comboBox.Items.Add(
-                        new SpecificTriggerOption(
-                            boss.Value,
-                            boss.DisplayName
-                        )
-                    );
-                }
-            }
+                    List<SpecificTriggerOption> options;
 
-            SelectSpecificValue(
-                comboBox,
-                type,
-                selectedValue
-            );
+                    if (
+                        _specificOptionsCache.TryGetValue(
+                            type,
+                            out options
+                        ) &&
+                        options.Count > 0
+                    )
+                    {
+                        comboBox.Items.AddRange(
+                            options.ToArray()
+                        );
+                    }
+                }
 
-            comboBox.EndUpdate();
+                SelectSpecificValue(
+                    comboBox,
+                    type,
+                    selectedValue
+                );
+            }
+            finally
+            {
+                comboBox.EndUpdate();
+            }
         }
 
         private void SelectSpecificValue(
