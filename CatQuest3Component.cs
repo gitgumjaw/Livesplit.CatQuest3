@@ -353,8 +353,6 @@ namespace LiveSplit.CatQuest3
 
             _gameState.Update();
 
-            CheckEquipmentGetDiagnostic();
-
             UpdateHaltNavigationState();
 
             // --------------------------------------------------------
@@ -382,6 +380,8 @@ namespace LiveSplit.CatQuest3
             // --------------------------------------------------------
 
             CheckConfiguredKeyItemSplit();
+
+            CheckConfiguredEquipmentSplit();
 
             // --------------------------------------------------------
             // SAVE HISTORY
@@ -927,15 +927,32 @@ namespace LiveSplit.CatQuest3
         }
 
         // ============================================================
-        // EQUIPMENT GET DIAGNOSTIC
+        // EQUIPMENT GET SPLIT
         // ============================================================
 
-        private void CheckEquipmentGetDiagnostic()
+        private void CheckConfiguredEquipmentSplit()
         {
             if (
                 _gameState.NewlyObtainedEquipmentGuids == null ||
                 _gameState.NewlyObtainedEquipmentGuids.Count == 0
             )
+            {
+                return;
+            }
+
+            SplitTriggerSelection trigger = GetCurrentSplitTrigger();
+
+            if (
+                trigger.Type != SplitTriggerType.Equipment ||
+                string.IsNullOrEmpty(trigger.Value)
+            )
+            {
+                return;
+            }
+
+            EquipmentCatalog.EquipmentEntry configuredItem;
+
+            if (!EquipmentCatalog.TryGetByValue(trigger.Value, out configuredItem))
             {
                 return;
             }
@@ -946,9 +963,31 @@ namespace LiveSplit.CatQuest3
             )
             {
                 Trace.WriteLine(
-                    "EQUIPMENT OBTAINED | GUID: " +
-                    guid
+                    "EQUIPMENT OBTAINED | " +
+                    EquipmentCatalog.GetDisplayNameByGuid(guid) +
+                    " | GUID: " + guid
                 );
+
+                if (
+                    !string.Equals(
+                        guid,
+                        configuredItem.Guid,
+                        StringComparison.OrdinalIgnoreCase
+                    )
+                )
+                {
+                    continue;
+                }
+
+                Trace.WriteLine(
+                    "SPLIT TRIGGER | EQUIPMENT | " +
+                    configuredItem.DisplayName +
+                    " | SPLIT " +
+                    (_state.CurrentSplitIndex + 1).ToString()
+                );
+
+                _timerModel.Split();
+                return;
             }
         }
 

@@ -911,12 +911,18 @@ namespace LiveSplit.CatQuest3
                 type == SplitTriggerType.Equipment
             )
             {
-                comboBox.Items.Add(
-                    new SpecificTriggerOption(
-                        string.Empty,
-                        "(Equipment triggers not implemented yet)"
-                    )
-                );
+                foreach (
+                    EquipmentCatalog.EquipmentEntry equipment
+                    in EquipmentCatalog.Entries
+                )
+                {
+                    comboBox.Items.Add(
+                        new SpecificTriggerOption(
+                            equipment.Value,
+                            equipment.DisplayName
+                        )
+                    );
+                }
             }
             else if (
                 type == SplitTriggerType.Boss

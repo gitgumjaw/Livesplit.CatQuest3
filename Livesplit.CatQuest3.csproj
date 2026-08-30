@@ -61,6 +61,7 @@
     <Compile Include="CatQuest3State.cs" />
     <Compile Include="ChestCatalog.cs" />
     <Compile Include="ComponentFactory.cs" />
+    <Compile Include="EquipmentCatalog.cs" />
     <Compile Include="KeyItemCatalog.cs" />
     <Compile Include="LocationCatalog.cs" />
     <Compile Include="MemoryManager.cs" />
