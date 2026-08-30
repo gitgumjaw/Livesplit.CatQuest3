@@ -398,40 +398,17 @@ namespace LiveSplit.CatQuest3
             CheckConfiguredLocationSplit();
 
             // --------------------------------------------------------
-            // CHEST DEBUG - ISOLATED
-            // --------------------------------------------------------
-            //
-            // Everything above this point is the exact known-good
-            // start-of-session update path. Chest memory scanning occurs
-            // only after start detection and history are finished.
-
-            try
-            {
-                _gameState.UpdateChestState();
-
-                CheckConfiguredChestSplit();
-
-                CheckChestDebug();
-            }
-            catch (Exception ex)
-            {
-                Trace.WriteLine(
-                    "CHEST DEBUG ERROR | " +
-                    ex.Message
-                );
-            }
-
-            // --------------------------------------------------------
-            // RUNTIME CHEST SCAN - CURRENT SPLIT + LOCATION GATED
+            // RUNTIME CHEST SCAN - CURRENT SPLIT GATED
             // --------------------------------------------------------
             //
             // Walking every live Game entity is comparatively expensive.
             // Only do it when:
             //
-            //   1. the CURRENT LiveSplit segment is configured for one of
-            //      the repeatable runtime chest entries, AND
-            //   2. the player is already in that entry's matching scene.
+            //   1. the CURRENT LiveSplit segment is configured for a chest,
+            //      and
+            //   2. repeatable chests are in their matching scene.
             //
+            // Permanent chests are identified by their live ChestID GUID.
             // Everywhere else, the runtime chest scanner costs nothing.
 
             if (ShouldScanRuntimeChests())
@@ -441,8 +418,6 @@ namespace LiveSplit.CatQuest3
                     _gameState.UpdateRuntimeChestDiagnostic();
 
                     CheckConfiguredRuntimeChestSplit();
-
-                    CheckRuntimeChestDiagnostic();
                 }
                 catch (Exception ex)
                 {
@@ -1143,100 +1118,6 @@ namespace LiveSplit.CatQuest3
         }
 
         // ============================================================
-        // CHEST SPLIT
-        // ============================================================
-
-        private void CheckConfiguredChestSplit()
-        {
-            if (
-                _gameState.NewlyOpenedChestGuids ==
-                    null ||
-                _gameState.NewlyOpenedChestGuids.Count ==
-                    0
-            )
-            {
-                return;
-            }
-
-            SplitTriggerSelection trigger =
-                GetCurrentSplitTrigger();
-
-            if (
-                trigger.Type !=
-                    SplitTriggerType.Chest ||
-                string.IsNullOrEmpty(
-                    trigger.Value
-                )
-            )
-            {
-                return;
-            }
-
-            foreach (
-                string openedGuid
-                in _gameState.NewlyOpenedChestGuids
-            )
-            {
-                if (
-                    !string.Equals(
-                        openedGuid,
-                        trigger.Value,
-                        StringComparison.OrdinalIgnoreCase
-                    )
-                )
-                {
-                    continue;
-                }
-
-                Trace.WriteLine(
-                    "SPLIT TRIGGER | CHEST | " +
-                    ChestCatalog.GetDisplayName(
-                        openedGuid
-                    ) +
-                    " | SPLIT " +
-                    (_state.CurrentSplitIndex + 1)
-                    .ToString()
-                );
-
-                _timerModel.Split();
-
-                // One physical game event should advance at most one
-                // LiveSplit segment during this update.
-                return;
-            }
-        }
-
-        // ============================================================
-        // CHEST DEBUG
-        // ============================================================
-
-        private void CheckChestDebug()
-        {
-            if (
-                _gameState.NewlyOpenedChestGuids ==
-                null
-            )
-            {
-                return;
-            }
-
-            foreach (
-                string guid
-                in _gameState.NewlyOpenedChestGuids
-            )
-            {
-                Trace.WriteLine(
-                    "CHEST OPENED | " +
-                    ChestCatalog.GetDisplayName(
-                        guid
-                    ) +
-                    " | GUID: " +
-                    guid
-                );
-            }
-        }
-
-        // ============================================================
         // RUNTIME CHEST SCAN GATE
         // ============================================================
 
@@ -1268,6 +1149,16 @@ namespace LiveSplit.CatQuest3
                 return false;
             }
 
+            // Permanent chests use the live ChestBehaviour.opened scanner.
+            // Their GUID uniquely identifies them, so no scene gate is needed.
+            if (
+                configuredChest.DetectionMode ==
+                    ChestCatalog.ChestDetectionMode.SavedGuid
+            )
+            {
+                return true;
+            }
+
             bool isRuntimeChest =
                 configuredChest.DetectionMode ==
                     ChestCatalog.ChestDetectionMode.RuntimeSceneChestType ||
@@ -1291,7 +1182,7 @@ namespace LiveSplit.CatQuest3
         }
 
         // ============================================================
-        // REPEATABLE RUNTIME CHEST SPLIT
+        // RUNTIME CHEST SPLIT
         // ============================================================
 
         private void CheckConfiguredRuntimeChestSplit()
@@ -1330,17 +1221,26 @@ namespace LiveSplit.CatQuest3
                 return;
             }
 
+            bool isSavedGuidChest =
+                configuredChest.DetectionMode ==
+                    ChestCatalog.ChestDetectionMode.SavedGuid;
+
+            bool isRepeatableRuntimeChest =
+                configuredChest.DetectionMode ==
+                    ChestCatalog.ChestDetectionMode.RuntimeSceneChestType ||
+                configuredChest.DetectionMode ==
+                    ChestCatalog.ChestDetectionMode.RuntimeSceneRewardChest;
+
             if (
-                configuredChest.DetectionMode !=
-                    ChestCatalog.ChestDetectionMode.RuntimeSceneChestType &&
-                configuredChest.DetectionMode !=
-                    ChestCatalog.ChestDetectionMode.RuntimeSceneRewardChest
+                !isSavedGuidChest &&
+                !isRepeatableRuntimeChest
             )
             {
                 return;
             }
 
             if (
+                isRepeatableRuntimeChest &&
                 !string.Equals(
                     _gameState.ActiveSceneName,
                     configuredChest.SceneName,
@@ -1358,7 +1258,20 @@ namespace LiveSplit.CatQuest3
             {
                 bool matched;
 
-                if (
+                if (isSavedGuidChest)
+                {
+                    // Permanent chests are identified by the same GUID used
+                    // by ChestCatalog and split when ChestBehaviour.opened
+                    // changes false -> true.
+                    matched =
+                        !string.IsNullOrEmpty(chestEvent.Guid) &&
+                        string.Equals(
+                            chestEvent.Guid,
+                            configuredChest.Guid,
+                            StringComparison.OrdinalIgnoreCase
+                        );
+                }
+                else if (
                     configuredChest.DetectionMode ==
                     ChestCatalog.ChestDetectionMode.RuntimeSceneChestType
                 )
@@ -1391,6 +1304,10 @@ namespace LiveSplit.CatQuest3
                     configuredChest.DisplayName +
                     " | TYPE: " +
                     chestEvent.ChestType.ToString() +
+                    " | GUID: " +
+                    (string.IsNullOrEmpty(chestEvent.Guid)
+                        ? "<empty>"
+                        : chestEvent.Guid) +
                     " | SCENE: " +
                     (
                         string.IsNullOrEmpty(
@@ -1409,50 +1326,6 @@ namespace LiveSplit.CatQuest3
                 // One physical runtime chest opening advances at most one
                 // LiveSplit segment during this update.
                 return;
-            }
-        }
-
-        // ============================================================
-        // RUNTIME CHEST DIAGNOSTIC
-        // ============================================================
-
-        private void CheckRuntimeChestDiagnostic()
-        {
-            if (_gameState.NewlyOpenedRuntimeChests == null)
-            {
-                return;
-            }
-
-            foreach (
-                CatQuest3State.RuntimeChestEvent chestEvent
-                in _gameState.NewlyOpenedRuntimeChests
-            )
-            {
-                // Only the two repeatable visible reward-chest types currently
-                // used by Infinity Tower are useful here. chestType 4 is the
-                // fast/random entity-loot path and is intentionally ignored.
-                if (
-                    chestEvent.ChestType != 0 &&
-                    chestEvent.ChestType != 1
-                )
-                {
-                    continue;
-                }
-
-                Trace.WriteLine(
-                    "RUNTIME CHEST OPENED | TYPE: " +
-                    chestEvent.ChestType.ToString() +
-                    " | SCENE: " +
-                    (
-                        string.IsNullOrEmpty(
-                            _gameState.ActiveSceneName
-                        )
-                            ? "<unknown>"
-                            : _gameState.ActiveSceneName
-                    ) +
-                    " | ENTITY: 0x" +
-                    chestEvent.EntityAddress.ToString("X8")
-                );
             }
         }
 
