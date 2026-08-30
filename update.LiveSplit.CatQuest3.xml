@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <updates>
-  <update version="0.1.0">
+  <update version="0.1.1">
     <files>
       <file path="Components/Livesplit.CatQuest3.dll" status="changed" />
     </files>

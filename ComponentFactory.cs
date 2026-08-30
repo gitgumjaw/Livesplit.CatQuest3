@@ -24,6 +24,6 @@ namespace LiveSplit.CatQuest3
         public string XMLURL =>
             UpdateURL + "update.LiveSplit.CatQuest3.xml";
 
-        public Version Version => new Version(0, 1, 0);
+        public Version Version => new Version(0, 1, 1);
     }
 }
