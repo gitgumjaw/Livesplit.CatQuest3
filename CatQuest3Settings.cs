@@ -17,6 +17,7 @@ namespace LiveSplit.CatQuest3
         private readonly Label _splitTriggersHelperLabel;
         private readonly Panel _splitScrollPanel;
         private readonly TableLayoutPanel _splitTable;
+        private readonly Label _versionLabel;
         private readonly LinkLabel _assistanceLinkLabel;
 
         private readonly Dictionary<int, SplitTriggerSelection>
@@ -98,7 +99,7 @@ namespace LiveSplit.CatQuest3
                 475;
 
             Height =
-                430;
+                445;
 
             _startTriggerLabel =
                 new Label();
@@ -270,6 +271,27 @@ namespace LiveSplit.CatQuest3
                 _splitTable
             );
 
+            _versionLabel =
+                new Label();
+
+            _versionLabel.Text =
+                "Version " + ComponentFactory.CurrentVersion.ToString();
+
+            _versionLabel.AutoSize =
+                true;
+
+            _versionLabel.Font =
+                new Font(
+                    _versionLabel.Font.FontFamily,
+                    7.5f
+                );
+
+            _versionLabel.Left =
+                10;
+
+            _versionLabel.Top =
+                399;
+
             _assistanceLinkLabel =
                 new LinkLabel();
 
@@ -289,7 +311,7 @@ namespace LiveSplit.CatQuest3
                 10;
 
             _assistanceLinkLabel.Top =
-                402;
+                414;
 
             const string discordLinkText =
                 "Cat Quest Speedrun Discord";
@@ -348,6 +370,10 @@ namespace LiveSplit.CatQuest3
 
             Controls.Add(
                 _splitScrollPanel
+            );
+
+            Controls.Add(
+                _versionLabel
             );
 
             Controls.Add(

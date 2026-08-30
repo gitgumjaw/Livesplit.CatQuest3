@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <updates>
-  <update version="0.1.1">
+  <update version="0.1.2">
     <files>
       <file path="Components/Livesplit.CatQuest3.dll" status="changed" />
     </files>
     <changelog>
-      <change>Initial release.</change>
+      <change>Second auto-updater test&#xD;Added version number to layout settings.</change>
     </changelog>
   </update>
 </updates>
