@@ -19,8 +19,10 @@ namespace LiveSplit.CatQuest3
 
         public string UpdateName => ComponentName;
 
-        public string UpdateURL => "https://raw.githubusercontent.com/gitgumjaw/Livesplit.CatQuest3/main/";
-        public string XMLURL => UpdateURL + "update.LiveSplit.CatQuest3.xml";
+        public string UpdateURL =>
+            "https://raw.githubusercontent.com/gitgumjaw/Livesplit.CatQuest3/master/";
+        public string XMLURL =>
+            UpdateURL + "update.LiveSplit.CatQuest3.xml";
 
         public Version Version => new Version(0, 1, 0);
     }
